@@ -1,0 +1,2 @@
+"""Hearthnote application package."""
+

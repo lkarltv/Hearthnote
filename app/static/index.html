@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f0e8" />
+    <title>Hearthnote — Coaching notes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="clients-panel" aria-label="Clients">
+        <header class="brand">
+          <div class="brand-mark" aria-hidden="true">H</div>
+          <div>
+            <strong>Hearthnote</strong>
+            <span>Coaching workspace</span>
+          </div>
+        </header>
+
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Your practice</p>
+            <h1>Clients</h1>
+          </div>
+          <button class="icon-button dark" id="new-client" aria-label="Add client">+</button>
+        </div>
+
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="client-search" type="search" placeholder="Find a client" autocomplete="off" />
+          <kbd>⌘ K</kbd>
+        </label>
+
+        <nav id="client-list" class="client-list" aria-live="polite"></nav>
+
+        <footer class="vault-status">
+          <span class="pulse"></span>
+          <div>
+            <strong>Vault connected</strong>
+            <span>Plain Markdown · Syncthing ready</span>
+          </div>
+        </footer>
+      </aside>
+
+      <aside class="sessions-panel" aria-label="Sessions">
+        <header class="sessions-header">
+          <button class="mobile-back" id="back-to-clients" aria-label="Back to clients">←</button>
+          <div class="selected-person">
+            <div class="avatar large" id="selected-avatar"></div>
+            <div>
+              <p class="eyebrow">Working with</p>
+              <h2 id="selected-client">Choose a client</h2>
+            </div>
+          </div>
+          <button id="new-session" class="primary-button" disabled><span>＋</span> New session</button>
+        </header>
+        <div class="session-count" id="session-count"></div>
+        <nav id="session-list" class="session-list"></nav>
+      </aside>
+
+      <main class="editor-panel">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-orbit"><span>✦</span></div>
+          <p class="eyebrow">A quiet place to think</p>
+          <h2>Select a client to open their notes.</h2>
+          <p>Your sessions are stored as ordinary Markdown files, right where you left them.</p>
+        </div>
+
+        <section id="editor-workspace" class="editor-workspace hidden" aria-label="Note editor">
+          <header class="editor-header">
+            <div>
+              <button class="mobile-back" id="back-to-sessions" aria-label="Back to sessions">←</button>
+              <p class="breadcrumb"><span id="crumb-client"></span><i>/</i><span id="crumb-session"></span></p>
+              <h2 id="editor-title"></h2>
+            </div>
+            <div class="save-state" id="save-state" role="status">
+              <span class="state-dot"></span>
+              <span>All changes saved</span>
+            </div>
+          </header>
+
+          <div class="editor-meta">
+            <span id="session-date"></span>
+            <span class="meta-divider"></span>
+            <span id="word-count">0 words</span>
+            <span class="meta-divider"></span>
+            <span>Markdown</span>
+          </div>
+
+          <textarea id="note-editor" aria-label="Session note" spellcheck="true"></textarea>
+
+          <footer class="editor-footer">
+            <span>Autosaves as you write</span>
+            <span class="shortcut-hint"><kbd>⌘</kbd><kbd>S</kbd> Save now</span>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="client-dialog">
+      <form method="dialog" id="client-form">
+        <button class="dialog-close" id="dialog-close" type="button" aria-label="Close">×</button>
+        <p class="eyebrow">New relationship</p>
+        <h2>Add a client</h2>
+        <p>Create their folder now. Their first session can be added whenever you’re ready.</p>
+        <label>
+          Client name
+          <input id="client-name" name="name" required maxlength="100" placeholder="e.g. Taylor Morgan" />
+        </label>
+        <div class="dialog-actions">
+          <button type="button" id="dialog-cancel" class="secondary-button">Cancel</button>
+          <button type="submit" class="primary-button">Add client</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="alert"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
+

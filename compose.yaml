@@ -1,0 +1,11 @@
+services:
+  hearthnote:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      NOTES_ROOT: /notes
+    volumes:
+      - "./synthetic_data/Coaching notes:/notes:Z"
+    restart: unless-stopped
+
