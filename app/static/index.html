@@ -34,12 +34,15 @@
 
         <nav id="client-list" class="client-list" aria-live="polite"></nav>
 
-        <footer class="vault-status">
-          <span class="pulse"></span>
-          <div>
-            <strong>Vault connected</strong>
-            <span>Plain Markdown · Syncthing ready</span>
+        <footer class="vault-footer">
+          <div class="vault-status">
+            <span class="pulse"></span>
+            <div>
+              <strong>Vault connected</strong>
+              <span id="vault-location">Plain Markdown · Syncthing ready</span>
+            </div>
           </div>
+          <button class="settings-button" id="open-settings" aria-label="Vault settings" title="Vault settings">⚙</button>
         </footer>
       </aside>
 
@@ -111,6 +114,31 @@
         <div class="dialog-actions">
           <button type="button" id="dialog-cancel" class="secondary-button">Cancel</button>
           <button type="submit" class="primary-button">Add client</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog" class="settings-dialog">
+      <form method="dialog" id="settings-form">
+        <button class="dialog-close" id="settings-close" type="button" aria-label="Close">×</button>
+        <p class="eyebrow">Storage</p>
+        <h2>Vault location</h2>
+        <p>Choose your Obsidian vault or the <code>Coaching notes</code> folder itself. Hearthnote will find the client folders and read and write the <code>Session n.md</code> files inside them.</p>
+        <label>
+          Vault location
+          <input id="notes-root" name="notes_root" required spellcheck="false" autocomplete="off" placeholder="/home/you/Obsidian/Vault" />
+        </label>
+        <div class="path-example">
+          <strong>Expected structure</strong>
+          <code>Coaching notes / Client name / Session 1.md</code>
+        </div>
+        <div class="docker-notice" id="docker-notice">
+          <strong>Using Docker?</strong> The host vault must be mounted first. Enter its container path here, usually <code>/vault</code>.
+        </div>
+        <p class="settings-summary" id="settings-summary"></p>
+        <div class="dialog-actions">
+          <button type="button" id="settings-cancel" class="secondary-button">Cancel</button>
+          <button type="submit" class="primary-button">Test &amp; use folder</button>
         </div>
       </form>
     </dialog>

@@ -58,11 +58,15 @@ kbd { padding: 2px 5px; border: 1px solid var(--line); border-bottom-width: 2px;
 .client-card.active .client-arrow, .client-card:hover .client-arrow { opacity: 1; }
 .no-results { padding: 26px 12px; color: var(--muted); font-size: 13px; text-align: center; }
 
-.vault-status { display: flex; align-items: center; gap: 10px; padding: 13px 8px 2px; border-top: 1px solid var(--line); }
+.vault-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 5px 2px; border-top: 1px solid var(--line); }
+.vault-status { display: flex; min-width: 0; align-items: center; gap: 10px; }
 .pulse { width: 8px; height: 8px; border: 2px solid #d7e2d8; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(97,120,104,.10); }
 .vault-status strong, .vault-status span { display: block; }
 .vault-status strong { font-size: 11px; }
-.vault-status span { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.vault-status div { min-width: 0; }
+.vault-status span { max-width: 175px; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.settings-button { display: grid; flex: 0 0 auto; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.settings-button:hover { border-color: var(--line); background: rgba(255,255,255,.55); color: var(--ink); }
 
 .sessions-header { padding: 32px 26px 22px; border-bottom: 1px solid var(--line); }
 .selected-person { display: flex; align-items: center; gap: 12px; }
@@ -119,6 +123,14 @@ dialog p:not(.eyebrow) { margin: 10px 0 25px; color: var(--muted); font-size: 13
 dialog label { display: grid; gap: 8px; font-size: 11px; font-weight: 600; }
 dialog input { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 9px; outline: none; }
 dialog input:focus { border-color: var(--accent); }
+.settings-dialog { width: min(560px, calc(100vw - 32px)); }
+.settings-dialog code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+.path-example, .docker-notice { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 11px; line-height: 1.55; }
+.path-example { border: 1px solid var(--line); background: #faf8f3; color: var(--muted); }
+.path-example strong, .docker-notice strong { display: block; margin-bottom: 3px; color: var(--ink); }
+.docker-notice { background: #f3eadb; color: #695b47; }
+dialog p.settings-summary { min-height: 18px; margin: 13px 0 0; color: var(--green); font-size: 11px; }
+dialog p.settings-summary.error { color: #a34734; }
 .dialog-close { position: absolute; top: 16px; right: 16px; border: 0; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 26px; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: 380px; padding: 12px 16px; border-radius: 10px; background: var(--ink); color: white; box-shadow: var(--shadow); font-size: 12px; opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }

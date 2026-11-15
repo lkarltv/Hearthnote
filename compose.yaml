@@ -4,8 +4,13 @@ services:
     ports:
       - "8000:8000"
     environment:
-      NOTES_ROOT: /notes
+      NOTES_ROOT: /vault
+      CONFIG_PATH: /config/settings.json
     volumes:
-      - "./synthetic_data/Coaching notes:/notes:Z"
+      - "${HEARTHNOTE_VAULT_PATH:-./synthetic_data}:/vault:Z"
+      - "hearthnote-config:/config"
     restart: unless-stopped
+
+volumes:
+  hearthnote-config:
 

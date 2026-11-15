@@ -7,13 +7,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from .store import Conflict, NotesStore, StoreError
+from .config import VaultManager
+from .store import Conflict, StoreError
 
 
 APP_DIR = Path(__file__).parent
 STATIC_DIR = APP_DIR / "static"
 DEFAULT_NOTES_ROOT = APP_DIR.parent / "synthetic_data" / "Coaching notes"
-STORE = NotesStore(os.environ.get("NOTES_ROOT", DEFAULT_NOTES_ROOT))
+DEFAULT_CONFIG_PATH = Path.home() / ".config" / "hearthnote" / "settings.json"
+VAULT = VaultManager(
+    os.environ.get("NOTES_ROOT", DEFAULT_NOTES_ROOT),
+    os.environ.get("CONFIG_PATH", DEFAULT_CONFIG_PATH),
+)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -23,12 +28,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/clients":
-                return self._json(200, {"clients": STORE.list_clients()})
+                return self._json(200, {"clients": VAULT.store.list_clients()})
+            if path == "/api/settings":
+                return self._json(200, VAULT.details())
             match = self._match_client_path(path)
             if match and match[1] is None:
-                return self._json(200, {"sessions": STORE.list_sessions(match[0])})
+                return self._json(200, {"sessions": VAULT.store.list_sessions(match[0])})
             if match and match[1] is not None:
-                return self._json(200, STORE.read_session(match[0], match[1]))
+                return self._json(200, VAULT.store.read_session(match[0], match[1]))
             return self._static(path)
         except StoreError as error:
             self._store_error(error)
@@ -38,10 +45,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/clients":
                 payload = self._body()
-                return self._json(201, STORE.create_client(payload.get("name", "")))
+                return self._json(201, VAULT.store.create_client(payload.get("name", "")))
             match = self._match_client_path(path)
             if match and match[1] is None:
-                return self._json(201, STORE.create_session(match[0]))
+                return self._json(201, VAULT.store.create_session(match[0]))
             self._json(404, {"error": "Not found"})
         except StoreError as error:
             self._store_error(error)
@@ -49,10 +56,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         path = urlparse(self.path).path
         try:
+            if path == "/api/settings":
+                payload = self._body()
+                return self._json(200, VAULT.update(payload.get("notes_root")))
             match = self._match_client_path(path)
             if match and match[1] is not None:
                 payload = self._body()
-                result = STORE.update_session(
+                result = VAULT.store.update_session(
                     match[0], match[1], payload.get("content"), payload.get("etag", "")
                 )
                 return self._json(200, result)
@@ -117,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
 def run() -> None:
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
-    print(f"Hearthnote is reading notes from {STORE.root}")
+    print(f"Hearthnote is reading notes from {VAULT.store.root}")
     print(f"Open http://{host}:{port}")
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 

@@ -57,8 +57,9 @@ function toast(message) {
 }
 
 async function loadClients(selectName = state.client) {
-  const { clients } = await api("/api/clients");
+  const [{ clients }, settings] = await Promise.all([api("/api/clients"), api("/api/settings")]);
   state.clients = clients;
+  $("#vault-location").textContent = settings.notes_root;
   renderClients();
   const target = selectName && clients.some((client) => client.name === selectName)
     ? selectName
@@ -205,6 +206,51 @@ async function createSession() {
   } catch (error) { toast(error.message); }
 }
 
+async function openSettings() {
+  try {
+    const settings = await api("/api/settings");
+    $("#notes-root").value = settings.notes_root;
+    $("#settings-summary").className = "settings-summary";
+    $("#settings-summary").textContent = `${settings.client_count} client ${settings.client_count === 1 ? "folder" : "folders"} found · ${settings.writable ? "Ready to write" : "Read only"}`;
+    $("#settings-dialog").showModal();
+    setTimeout(() => $("#notes-root").focus(), 50);
+  } catch (error) { toast(error.message); }
+}
+
+async function changeVault(event) {
+  event.preventDefault();
+  if (!await saveNote()) {
+    toast("Save or resolve the current note before changing folders.");
+    return;
+  }
+  const summary = $("#settings-summary");
+  const submit = event.currentTarget.querySelector('[type="submit"]');
+  summary.className = "settings-summary";
+  summary.textContent = "Checking folder access…";
+  submit.disabled = true;
+  try {
+    const settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ notes_root: $("#notes-root").value.trim() }),
+    });
+    state.client = null;
+    state.session = null;
+    state.etag = null;
+    state.sessions = [];
+    state.dirty = false;
+    showEmptyEditor();
+    $("#settings-dialog").close();
+    await loadClients();
+    shell.dataset.mobileView = "clients";
+    toast(`Vault connected · ${settings.client_count} client ${settings.client_count === 1 ? "folder" : "folders"}`);
+  } catch (error) {
+    summary.className = "settings-summary error";
+    summary.textContent = error.message;
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 function escapeHtml(value) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
@@ -217,6 +263,10 @@ $("#back-to-sessions").addEventListener("click", async () => { await saveNote();
 $("#new-client").addEventListener("click", () => { $("#client-dialog").showModal(); setTimeout(() => $("#client-name").focus(), 50); });
 $("#dialog-close").addEventListener("click", () => $("#client-dialog").close());
 $("#dialog-cancel").addEventListener("click", () => $("#client-dialog").close());
+$("#open-settings").addEventListener("click", openSettings);
+$("#settings-close").addEventListener("click", () => $("#settings-dialog").close());
+$("#settings-cancel").addEventListener("click", () => $("#settings-dialog").close());
+$("#settings-form").addEventListener("submit", changeVault);
 $("#client-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = $("#client-name").value.trim();
