@@ -23,6 +23,8 @@ python -m app.server
 
 Open <http://localhost:8000>. By default the app uses the included synthetic notes in `synthetic_data/Coaching notes`.
 
+On first launch, create a username and password for the single Hearthnote account. Future visits open the sign-in screen when there is no active session. Use **Sign out** at the bottom of the Clients panel to end the current session.
+
 To use another folder:
 
 ```bash
@@ -44,7 +46,7 @@ volumes:
 
 The `Z` suffix supplies the correct SELinux label on hosts that enforce it. If your NAS does not use SELinux, it is harmless with normal Docker; remove it if the platform's volume editor expects only a source and destination.
 
-Keep the app private to your LAN or VPN and put authentication in front of it before using real client notes.
+The Compose file mounts the named `hearthnote-data` volume at `/data` for the account and login sessions. Keep this volume when you replace or update the container. In a NAS container manager, add a separate persistent read/write mount at `/data`. For a direct Python run, account data goes in `.hearthnote/` next to the app. Set `HEARTHNOTE_DATA_DIR` to use a different location. Keep that directory outside the notes folder. If you run the container as a custom user, give it write access to both mounts.
 
 ## MVP features
 
@@ -64,5 +66,5 @@ python -m unittest discover -s tests -v
 
 ## Security scope
 
-This MVP intentionally does not include authentication. Bind it only to a trusted network while prototyping. A production deployment should add single-user authentication, HTTPS, backups, and a restricted container mount exposing only the coaching notes folder.
+Complete first-run setup on a trusted network. Until the account exists, anyone who can reach the server can claim it. For real client notes, serve Hearthnote through HTTPS on a private LAN or VPN. When using an HTTPS reverse proxy, preserve the incoming `Host` header, set `HEARTHNOTE_SECURE_COOKIE=1` in the container, and restrict direct access to the app port.
 
