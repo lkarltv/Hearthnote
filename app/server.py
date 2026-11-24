@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from . import trash
 from .auth import SESSION_SECONDS, AuthError, AuthStore
 from .config import VaultManager
 from .knowledge import list_topics, read_material
@@ -39,10 +40,7 @@ class Handler(BaseHTTPRequestHandler):
         source = query.get("source", [None])[0]
         try:
             if path == "/api/auth/status":
-                return self._json(200, {
-                    "setup_required": AUTH.setup_required(),
-                    "authenticated": AUTH.authenticated(self._session_token()),
-                })
+                return self._json(200, AUTH.session_status(self._session_token()))
             if not path.startswith("/api/"):
                 return self._static(path)
             self._require_session()
@@ -50,6 +48,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"clients": VAULT.client_store(source).list_clients()})
             if path == "/api/settings":
                 return self._json(200, VAULT.details())
+            if path == "/api/security":
+                return self._json(200, AUTH.security_settings())
             if path == "/api/folders":
                 return self._json(200, VAULT.browse(
                     query.get("root", [None])[0], query.get("parent", ["."])[0],
@@ -83,22 +83,37 @@ class Handler(BaseHTTPRequestHandler):
         source = query.get("source", [None])[0]
         try:
             self._require_same_origin()
-            if path.startswith("/api/auth/") and self.headers.get_content_type() != "application/json":
+            if (path.startswith("/api/auth/") or path in {"/api/trash", "/api/trash/undo"}) and self.headers.get_content_type() != "application/json":
                 raise AuthError("Expected a JSON request.", 415)
+            token = self._session_token()
             if path == "/api/auth/logout":
-                AUTH.logout(self._session_token())
-                return self._json(200, {"authenticated": False}, self._session_cookie("", 0))
+                AUTH.logout(token)
+                return self._json(200, AUTH.session_status(""), self._session_cookie("", 0))
+            if path == "/api/auth/open":
+                return self._json(200, AUTH.session_status(token, opening=True))
+            if path == "/api/auth/activity":
+                AUTH.require_session(token, activity=True)
+                return self._json(200, AUTH.session_status(token))
+            if path == "/api/auth/unlock":
+                return self._json(200, AUTH.unlock(token, self._body(max_length=4096).get("pin")))
             if path in {"/api/auth/setup", "/api/auth/login"}:
                 payload = self._body(max_length=4096)
+                username, password = payload.get("username"), payload.get("password")
                 create_account = path == "/api/auth/setup"
-                authenticate = AUTH.setup if create_account else AUTH.login
-                token = authenticate(payload.get("username"), payload.get("password"))
+                token = AUTH.setup(username, password, pin=payload.get("pin")) if create_account else AUTH.login(username, password)
                 return self._json(
                     201 if create_account else 200,
-                    {"authenticated": True},
+                    AUTH.session_status(token),
                     self._session_cookie(token, SESSION_SECONDS),
                 )
             self._require_session()
+            if path in {"/api/trash", "/api/trash/undo"}:
+                payload = self._body(max_length=4096)
+                self._require_session()
+                if path == "/api/trash/undo":
+                    return self._json(200, trash.restore(VAULT, source, payload))
+                AUTH.require_delete_pin(payload.get("pin"))
+                return self._json(200, trash.move(VAULT, source, payload))
             if path == "/api/clients":
                 payload = self._body()
                 return self._json(201, VAULT.client_store(source).create_client(payload.get("name", "")))
@@ -120,6 +135,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/settings":
                 payload = self._body()
                 return self._json(200, VAULT.update(payload.get("notes_root"), payload.get("sources")))
+            if path == "/api/security":
+                if self.headers.get_content_type() != "application/json":
+                    raise AuthError("Expected a JSON request.", 415)
+                return self._json(200, AUTH.update_security(self._session_token(), self._body(max_length=4096)))
             match = self._match_client_path(path)
             if match and match[1] is not None:
                 payload = self._body()
@@ -158,8 +177,7 @@ class Handler(BaseHTTPRequestHandler):
         return cookie[SESSION_COOKIE].value if SESSION_COOKIE in cookie else ""
 
     def _require_session(self) -> None:
-        if not AUTH.authenticated(self._session_token()):
-            raise AuthError("Sign in to access your notes.", 401)
+        AUTH.require_session(self._session_token())
 
     @staticmethod
     def _session_cookie(token: str, max_age: int) -> str:

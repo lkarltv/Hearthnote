@@ -170,10 +170,11 @@ class NotesStore:
         return clients
 
     def create_client(self, name: str) -> dict:
-        directory = self._client_dir(name)
-        if directory.exists():
-            raise Conflict("A client with this name already exists", {})
-        directory.mkdir()
+        with self._write_lock:
+            directory = self._client_dir(name)
+            if directory.exists():
+                raise Conflict("A client with this name already exists", {})
+            directory.mkdir()
         return {"name": directory.name}
 
     def read_session(self, client: str, number: int) -> dict:
@@ -183,24 +184,25 @@ class NotesStore:
         return {"client": client, "number": number, **self._read_note(path)}
 
     def create_session(self, client: str) -> dict:
-        directory = self._client_dir(client)
-        if not directory.is_dir():
-            raise NotFound("Client not found")
-        numbers = [session["number"] for session in self.list_sessions(client)]
-        number = max(numbers, default=0) + 1
-        today = datetime.now().astimezone().strftime("%B %-d, %Y")
-        content = (
-            f"# Session {number}\n\n"
-            f"**Date:** {today}\n\n"
-            "## Arrival\n\n"
-            "\n\n## What we explored\n\n"
-            "\n\n## Commitments\n\n"
-            "- [ ] \n\n"
-            "## Threads for next time\n\n"
-        )
-        path = directory / f"Session {number}.md"
-        self._atomic_write(path, content, exclusive=True)
-        return self.read_session(client, number)
+        with self._write_lock:
+            directory = self._client_dir(client)
+            if not directory.is_dir():
+                raise NotFound("Client not found")
+            numbers = [session["number"] for session in self.list_sessions(client)]
+            number = max(numbers, default=0) + 1
+            today = datetime.now().astimezone().strftime("%B %-d, %Y")
+            content = (
+                f"# Session {number}\n\n"
+                f"**Date:** {today}\n\n"
+                "## Arrival\n\n"
+                "\n\n## What we explored\n\n"
+                "\n\n## Commitments\n\n"
+                "- [ ] \n\n"
+                "\n## Threads for next time\n\n"
+            )
+            path = directory / f"Session {number}.md"
+            self._atomic_write(path, content, exclusive=True)
+            return self.read_session(client, number)
 
     def update_session(self, client: str, number: int, content: str, expected_etag: str) -> dict:
         self._validate_content(content)

@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,10 +63,14 @@ class AuthenticationTests(unittest.TestCase):
     def test_setup_login_logout_and_notes_access(self):
         status_path = "/api/auth/status"
         credentials = {"username": "coach", "password": "cedar123"}
-        self.assertEqual(self.request(status_path)[2], {"setup_required": True, "authenticated": False})
+        status = self.request(status_path)[2]
+        self.assertTrue(status["setup_required"])
+        self.assertFalse(status["authenticated"])
+        self.assertFalse(status["locked"])
         for method, path in [
             ("GET", "/api/clients"),
             ("GET", "/api/settings"),
+            ("GET", "/api/security"),
             ("GET", "/api/folders"),
             ("GET", "/api/knowledge"),
             ("GET", "/api/material"),
@@ -75,7 +80,11 @@ class AuthenticationTests(unittest.TestCase):
             ("GET", "/api/clients/Client%20X/other-notes/Intake.md"),
             ("POST", "/api/clients"),
             ("POST", "/api/clients/Client%20X/sessions"),
+            ("POST", "/api/auth/activity"),
+            ("POST", "/api/trash"),
+            ("POST", "/api/trash/undo"),
             ("PUT", "/api/settings"),
+            ("PUT", "/api/security"),
             ("PUT", "/api/clients/Client%20X/sessions/1"),
             ("PUT", "/api/clients/Client%20X/other-notes/Intake.md"),
         ]:
@@ -89,7 +98,11 @@ class AuthenticationTests(unittest.TestCase):
         for attribute in ["Path=/", "HttpOnly", "SameSite=Strict", "Secure"]:
             self.assertIn(attribute, headers["Set-Cookie"])
         cookie = headers["Set-Cookie"].split(";", 1)[0]
-        self.assertEqual(self.request(status_path, cookie=cookie)[2], {"setup_required": False, "authenticated": True})
+        status = self.request(status_path, cookie=cookie)[2]
+        self.assertFalse(status["setup_required"])
+        self.assertTrue(status["authenticated"])
+        self.assertFalse(status["locked"])
+        self.assertFalse(status["security"]["enabled"])
         self.assertEqual(self.request("/api/auth/setup", "POST", payload=credentials)[0], 409)
         self.assertEqual(self.request("/api/clients", cookie=cookie)[0], 200)
         self.assertEqual(self.request("/api/clients", "POST", payload={"name": "New client"},
@@ -101,7 +114,7 @@ class AuthenticationTests(unittest.TestCase):
         reopened.initialize()
         with patch.object(server, "AUTH", reopened):
             self.assertEqual(self.request("/api/clients", cookie=cookie)[0], 200)
-            with sqlite3.connect(reopened.path) as database:
+            with closing(sqlite3.connect(reopened.path)) as database:
                 stored_hash, = database.execute("SELECT password_hash FROM account").fetchone()
                 stored_token, = database.execute("SELECT token_hash FROM sessions").fetchone()
             self.assertEqual(len(stored_hash), 32)
@@ -112,11 +125,43 @@ class AuthenticationTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("Max-Age=0", headers["Set-Cookie"])
             self.assertEqual(self.request("/api/clients", cookie=cookie)[0], 401)
-            self.assertEqual(self.request(status_path)[2], {"setup_required": False, "authenticated": False})
+            status = self.request(status_path)[2]
+            self.assertFalse(status["setup_required"])
+            self.assertFalse(status["authenticated"])
+            self.assertFalse(status["locked"])
             self.assertEqual(self.request("/api/auth/login", "POST", payload={**credentials, "password": "incorrect"})[0], 401)
             status, headers, _ = self.request("/api/auth/login", "POST", payload=credentials)
             self.assertEqual(status, 200)
             self.assertNotEqual(headers["Set-Cookie"].split(";", 1)[0], cookie)
+
+    def test_pin_guards_the_workspace_and_recoverable_deletion(self):
+        credentials = {"username": "coach", "password": PASSWORD, "pin": "0123"}
+        status, headers, _ = self.request("/api/auth/setup", "POST", payload=credentials)
+        self.assertEqual(status, 201)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        policy = {"enabled": True, "ask_on_open": True, "idle_minutes": 10, "require_on_delete": True}
+        self.assertEqual(self.request("/api/security", "PUT", cookie=cookie,
+                                      payload={**policy, "password": PASSWORD})[2], policy)
+        status, _, body = self.request("/api/auth/open", "POST", cookie=cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["locked"])
+        self.assertEqual(self.request("/api/clients", cookie=cookie)[0], 423)
+        self.assertEqual(self.request("/api/auth/activity", "POST", cookie=cookie)[0], 423)
+        self.assertEqual(self.request("/api/auth/unlock", "POST", cookie=cookie, payload={"pin": "4321"})[0], 403)
+        self.assertFalse(self.request("/api/auth/unlock", "POST", cookie=cookie, payload={"pin": "0123"})[2]["locked"])
+
+        session_url = "/api/clients/Client%20X/sessions/1"
+        session = self.request(session_url, cookie=cookie)[2]
+        target = {"kind": "session", "client": "Client X", "number": 1}
+        trash_url = "/api/trash?source=Clients"
+        self.assertEqual(self.request(trash_url, "POST", cookie=cookie, payload=target)[0], 403)
+        self.assertEqual(self.request(session_url, cookie=cookie)[0], 200)
+        status, _, body = self.request(trash_url, "POST", cookie=cookie, payload={**target, "pin": "0123"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request(session_url, cookie=cookie)[0], 404)
+        self.assertEqual(self.request("/api/trash/undo?source=Clients", "POST", cookie=cookie,
+                                      payload={"type": "clients", "token": body["token"]})[0], 200)
+        self.assertEqual(self.request(session_url, cookie=cookie)[2]["content"], session["content"])
 
     def test_other_notes_use_the_selected_clients_source(self):
         filename = "Intake #1.md"

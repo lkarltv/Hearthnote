@@ -4,6 +4,8 @@ import json
 import os
 import tempfile
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -62,6 +64,17 @@ class VaultManager:
             if match is None:
                 raise NotFound("That content folder is not enabled")
             return self._source_folder(self._root, match.path)
+
+    @contextmanager
+    def source_scope(self, kind: str, source: str | None) -> Iterator[tuple[Path, tuple[Path, ...]]]:
+        """Keep the selected folder and its nested source boundaries stable during a change."""
+        with self._lock:
+            folder = self.source_folder(kind, source)
+            boundaries = tuple(
+                path for item in self._sources
+                if (path := self._root / item.path) != folder and path.is_relative_to(folder)
+            )
+            yield folder, boundaries
 
     def details(self) -> dict:
         with self._lock:

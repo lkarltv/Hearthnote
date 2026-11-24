@@ -32,6 +32,30 @@
           </label>
           <p class="auth-error" id="auth-error" role="alert"></p>
           <button class="primary-button" id="auth-submit" type="submit">Sign in</button>
+          <button class="secondary-button" id="auth-use-pin" type="button" hidden>Use PIN instead</button>
+        </form>
+        <form id="auth-pin-form" method="post" hidden>
+          <label>
+            PIN
+            <input id="auth-signup-pin" type="password" inputmode="numeric" pattern="[0-9]{4,32}" minlength="4" maxlength="32" title="4–32 digits" autocomplete="new-password" required />
+          </label>
+          <p class="auth-error" id="auth-pin-error" role="alert"></p>
+          <div class="auth-actions">
+            <button class="secondary-button" id="auth-pin-back" type="button">Back</button>
+            <button class="secondary-button" id="auth-pin-skip" type="button">Skip PIN</button>
+            <button class="primary-button" id="auth-pin-submit" type="submit">Set PIN</button>
+          </div>
+        </form>
+        <form id="auth-unlock-form" method="post" hidden>
+          <label>
+            PIN
+            <input id="auth-unlock-pin" type="password" inputmode="numeric" pattern="[0-9]{4,32}" minlength="4" maxlength="32" title="4–32 digits" autocomplete="off" required />
+          </label>
+          <p class="auth-error" id="auth-unlock-error" role="alert"></p>
+          <div class="auth-actions">
+            <button class="secondary-button" id="auth-use-password" type="button">Use password instead</button>
+            <button class="primary-button" id="auth-unlock-submit" type="submit">Unlock</button>
+          </div>
         </form>
         <button class="secondary-button" id="auth-retry" type="button" hidden>Try again</button>
       </div>
@@ -109,6 +133,9 @@
               <h2 id="selected-client" tabindex="-1">Choose a client</h2>
             </div>
           </div>
+          <div class="delete-controls" data-delete="folder" hidden>
+            <button class="quiet-delete" type="button" aria-expanded="false">Delete folder</button>
+          </div>
           <button id="new-session" class="primary-button" disabled><span>＋</span> New session</button>
         </header>
         <div id="note-sections" hidden>
@@ -151,14 +178,17 @@
           </header>
 
           <div class="editor-toolbar">
+            <div class="note-modes" role="group" aria-label="Note mode">
+              <button id="read-note" type="button" aria-controls="note-preview" aria-pressed="true">Read</button>
+              <button id="edit-note" type="button" aria-controls="note-editor" aria-pressed="false">Edit</button>
+            </div>
             <div class="editor-meta">
               <span id="note-date"></span>
               <span class="meta-divider"></span>
               <span id="word-count">0 words</span>
             </div>
-            <div class="note-modes" role="group" aria-label="Note mode">
-              <button id="read-note" type="button" aria-controls="note-preview" aria-pressed="true">Read</button>
-              <button id="edit-note" type="button" aria-controls="note-editor" aria-pressed="false">Edit</button>
+            <div class="delete-controls" data-delete="note">
+              <button class="quiet-delete" type="button" aria-expanded="false">Delete</button>
             </div>
           </div>
 
@@ -174,13 +204,33 @@
         <section id="reader-workspace" class="reader-workspace hidden" aria-label="Knowledge reader">
           <header class="reader-header">
             <button class="mobile-back" id="back-to-materials" aria-label="Back to materials"><span aria-hidden="true">‹</span> Materials</button>
+            <div class="delete-controls reader-delete" data-delete="material">
+              <button class="quiet-delete" type="button" aria-expanded="false">Delete</button>
+            </div>
             <p class="breadcrumb" id="reader-crumb"></p>
             <h2 id="reader-title" tabindex="-1"></h2>
           </header>
           <article id="material-content" class="material-content" aria-labelledby="reader-title"></article>
         </section>
       </main>
+      <div class="undo-notice" id="undo-notice" hidden>
+        <span id="undo-message" role="status"></span>
+        <button class="secondary-button" id="undo-delete" type="button">Undo delete</button>
+      </div>
     </div>
+
+    <template id="delete-confirm-template">
+      <form class="delete-confirm" aria-label="Confirm deletion">
+        <p class="delete-question" hidden>Move the folder and all its contents to trash?</p>
+        <label class="delete-pin" hidden>
+          PIN
+          <input type="password" inputmode="numeric" pattern="[0-9]{4,32}" minlength="4" maxlength="32" title="4–32 digits" autocomplete="off" />
+        </label>
+        <button class="secondary-button delete-cancel" type="button">Cancel</button>
+        <button class="secondary-button delete-submit" type="submit">Confirm delete</button>
+        <span class="delete-message" role="alert"></span>
+      </form>
+    </template>
 
     <dialog id="client-dialog">
       <form method="dialog" id="client-form">
@@ -206,6 +256,7 @@
         <div class="settings-tabs" role="tablist" aria-label="Settings">
           <button type="button" id="vault-tab" role="tab" aria-selected="true" aria-controls="vault-panel">Vault settings</button>
           <button type="button" id="appearance-tab" role="tab" aria-selected="false" aria-controls="appearance-panel" tabindex="-1">Appearance</button>
+          <button type="button" id="security-tab" role="tab" aria-selected="false" aria-controls="security-panel" tabindex="-1">Security</button>
         </div>
       </header>
       <section id="vault-panel" role="tabpanel" aria-labelledby="vault-tab">
@@ -268,6 +319,42 @@
           </select>
         </label>
         <p id="appearance-status" class="appearance-status" role="status">Changes apply immediately and are saved in this browser.</p>
+      </section>
+      <section id="security-panel" class="hidden" role="tabpanel" aria-labelledby="security-tab">
+        <form id="security-form" method="dialog">
+          <label class="security-check">
+            <input type="checkbox" id="security-enabled" />
+            Use a PIN
+          </label>
+          <div id="security-pin-options" hidden>
+            <label class="security-check">
+              <input type="checkbox" id="security-ask-on-open" />
+              Ask for a PIN when opening the app
+            </label>
+            <label>
+              Lock the app after this many minutes of inactivity
+              <input type="number" id="security-idle-minutes" min="0" max="1440" step="1" required aria-describedby="security-idle-help" />
+            </label>
+            <p class="root-help" id="security-idle-help">Enter 0 to turn off automatic locking.</p>
+            <label class="security-check">
+              <input type="checkbox" id="security-require-on-delete" />
+              Require a PIN when deleting contents
+            </label>
+            <button class="secondary-button" id="security-change-pin" type="button">Change PIN</button>
+            <label id="security-new-pin-field" hidden>
+              New PIN (4–32 digits)
+              <input id="security-new-pin" type="password" inputmode="numeric" pattern="[0-9]{4,32}" minlength="4" maxlength="32" title="4–32 digits" autocomplete="new-password" />
+            </label>
+          </div>
+          <label>
+            Account password to save changes
+            <input id="security-password" type="password" autocomplete="current-password" required />
+          </label>
+          <p class="settings-summary" id="security-message" role="status"></p>
+          <div class="dialog-actions">
+            <button class="primary-button" id="security-submit" type="submit">Save security settings</button>
+          </div>
+        </form>
       </section>
     </dialog>
 

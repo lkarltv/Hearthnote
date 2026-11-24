@@ -20,7 +20,7 @@ docker compose up --build -d
 
 Open [Hearthnote on localhost](http://localhost:8000). The included `synthetic_data` contains five fictional clients, five career-coaching notes, and four worksheet templates. Open **Knowledge** and use the folder menu to switch between **Educational materials** and **Worksheet bases**.
 
-On first launch, create a username and password for Hearthnote’s single account. Use **Sign out** to end your session.
+On first launch, create a username and password for Hearthnote’s single account. You can add a PIN of 4–32 digits or skip that step. Use **Sign out** to end your session.
 
 ## Connect your coaching folder
 
@@ -87,6 +87,14 @@ The [Hearthnote app icon](app/static/app-icon.png) is a 256 × 256 PNG with the 
 - **Clients** shows searchable client folders, numbered sessions, and an **Other notes** list for Markdown files such as intake forms. Open a note in **Read** mode or switch to **Edit** to change its Markdown. Changes autosave, and Hearthnote flags edits made outside the app. Hearthnote creates the next numbered session and accepts names such as `Session 1.md` and `session1.md`. Long client names wrap to two lines, then show an ellipsis; hover to see the full name.
 - **Knowledge** shows topics, materials, and a read-only Markdown reader. Each folder containing Markdown files, including nested folders, becomes a topic. Files at the source root appear under **General**. Search matches topic names and material titles. The reader renders headings, lists, checklists, tables, quotes, and code blocks.
 - **Keyboard shortcuts** use `Ctrl+K` or `⌘K` for search and `Ctrl+S` or `⌘S` to save a client note. On mobile, use the back buttons to move between columns.
+
+To remove a note, material, client folder, or Knowledge topic, open it and select **Delete** or **Delete folder**. Confirm or cancel in place; if your security settings require a PIN, enter it there. **Undo** restores the item to its original location without overwriting a replacement. The Undo control is available until you reload or sign out. Files stay in the hidden `.hearthnote-trash` folder within their original source even after a restart; Hearthnote does not automatically purge them. Source roots and folders containing another configured source cannot be deleted.
+
+## Security
+
+In **Settings → Security**, enable, change, or disable your PIN. You can require it when opening Hearthnote, after a set number of idle minutes, or when deleting content. Set the idle time to `0` to turn off automatic locking. Security changes require your account password.
+
+If you forget your PIN, select **Use password instead** on the lock screen. Your PIN locks the Hearthnote session; it does not encrypt files in the vault or replace password sign-in.
 
 ## Appearance
 

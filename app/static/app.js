@@ -1,5 +1,8 @@
 import { initAppearance, setWorkspaceAppearance } from "./appearance.js";
+import { initDeletion } from "./deletion.js";
 import { renderMarkdown } from "./markdown.js";
+
+const NO_SECURITY = { enabled: false, ask_on_open: false, idle_minutes: 0, require_on_delete: false };
 
 const state = {
   clients: [],
@@ -15,6 +18,7 @@ const state = {
   mode: "clients",
   source: null,
   sources: [],
+  security: NO_SECURITY,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -26,6 +30,21 @@ const authPassword = $("#auth-password");
 const authConfirm = $("#auth-confirm");
 const authSubmit = $("#auth-submit");
 const authError = $("#auth-error");
+const authPinForm = $("#auth-pin-form");
+const authSignupPin = $("#auth-signup-pin");
+const authPinSubmit = $("#auth-pin-submit");
+const authPinSkip = $("#auth-pin-skip");
+const authPinBack = $("#auth-pin-back");
+const authPinError = $("#auth-pin-error");
+const authUnlockForm = $("#auth-unlock-form");
+const authUnlockPin = $("#auth-unlock-pin");
+const authUnlockSubmit = $("#auth-unlock-submit");
+const authUnlockError = $("#auth-unlock-error");
+const authUsePassword = $("#auth-use-password");
+const authUsePin = $("#auth-use-pin");
+const authRetry = $("#auth-retry");
+const authTitle = $("#auth-title");
+const authDescription = $("#auth-description");
 const clientList = $("#client-list");
 const sessionList = $("#session-list");
 const otherNotesList = $("#other-notes-list");
@@ -43,6 +62,13 @@ const sectionPreferences = new Map();
 let authMode = "login";
 let workspaceLoaded = false;
 let authGeneration = 0;
+let pageOpened = false;
+let checkingSession = false;
+let securityRevision = 0;
+let activityTimer;
+let lastActivityReported = -Infinity;
+const SESSION_CHECK_INTERVAL = 4000;
+const ACTIVITY_INTERVAL = 3000;
 
 async function api(path, options = {}) {
   const generation = authGeneration;
@@ -57,11 +83,9 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(body.error || "Something went wrong");
     error.status = response.status;
-    if (error.status === 401 && !path.startsWith("/api/auth/") && !shell.hidden && generation === authGeneration) {
-      const message = state.dirty
-        ? "Your session expired. Sign in again to save the unsaved changes in this tab."
-        : "Your session expired. Sign in again to continue.";
-      showAuth("login", message);
+    if (!shell.hidden && generation === authGeneration) {
+      if (error.status === 423) showAuth("unlock");
+      else if (error.status === 401) showAuth("login", expiredSessionMessage());
     }
     error.body = body;
     throw error;
@@ -69,37 +93,81 @@ async function api(path, options = {}) {
   return body;
 }
 
+function expiredSessionMessage() {
+  return state.dirty
+    ? "Your session expired. Sign in again to save the unsaved changes in this tab."
+    : "Your session expired. Sign in again to continue.";
+}
+
 function showAuth(mode, message) {
   const setup = mode === "setup";
+  const locked = mode === "unlock";
+  const recover = mode === "recover";
   authMode = mode;
+  authGeneration++;
   clearTimeout(state.saveTimer);
+  cancelActivityReport();
+  closeDelete();
   shell.hidden = true;
   document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
   $("#toast").classList.remove("visible");
   authScreen.hidden = false;
+  authRetry.hidden = true;
   authForm.reset();
-  authForm.hidden = false;
-  $("#auth-retry").hidden = true;
-  $("#auth-title").textContent = setup ? "Create your account" : "Sign in";
-  $("#auth-description").textContent = message ?? (setup
-    ? "Choose a username and a password with at least 8 characters."
-    : "Sign in to access your coaching notes.");
+  authPinForm.reset();
+  authUnlockForm.reset();
+  authForm.hidden = locked;
+  authPinForm.hidden = true;
+  authUnlockForm.hidden = !locked;
+  authTitle.textContent = setup ? "Create your account" : locked ? "Hearthnote is locked" : "Sign in";
+  if (message) authDescription.textContent = message;
+  else if (setup) authDescription.textContent = "Choose a username and a password with at least 8 characters.";
+  else if (locked) authDescription.textContent = state.dirty
+    ? "Enter your PIN to unlock and save the unsaved changes in this tab."
+    : "Enter your PIN to unlock your coaching notes.";
+  else if (recover) authDescription.textContent = state.dirty
+    ? "Sign in with your account password to unlock and save the unsaved changes in this tab."
+    : "Sign in with your account password to unlock Hearthnote.";
+  else authDescription.textContent = "Sign in to access your coaching notes.";
   $("#auth-confirm-label").hidden = !setup;
   authConfirm.required = setup;
   authPassword.autocomplete = setup ? "new-password" : "current-password";
-  authSubmit.textContent = setup ? "Create account" : "Sign in";
+  authPassword.minLength = setup ? 8 : 0;
+  authSubmit.textContent = setup ? "Continue" : "Sign in";
+  authUsePin.hidden = !recover;
   authError.textContent = "";
-  authUsername.focus();
+  authPinError.textContent = "";
+  authUnlockError.textContent = "";
+  (locked ? authUnlockPin : authUsername).focus();
+}
+
+function showSignupPinStep(shown) {
+  authForm.hidden = shown;
+  authPinForm.hidden = !shown;
+  authPinForm.reset();
+  authError.textContent = "";
+  authPinError.textContent = "";
+  authTitle.textContent = shown ? "Add an optional PIN" : "Create your account";
+  authDescription.textContent = shown
+    ? "Use at least 4 digits for a PIN, or skip this step to use only your password."
+    : "Choose a username and a password with at least 8 characters.";
+  (shown ? authSignupPin : authPassword).focus();
 }
 
 async function openWorkspace() {
-  authGeneration++;
+  const generation = ++authGeneration;
+  authForm.reset();
+  authPinForm.reset();
+  authUnlockForm.reset();
   authScreen.hidden = true;
   shell.hidden = false;
+  lastActivityReported = -Infinity;
+  if (state.saving) await state.saving;
+  if (generation !== authGeneration) return;
   await navigate(async () => {
     if (!workspaceLoaded) await loadWorkspace(await api("/api/settings"));
   });
-  if (shell.hidden) return;
+  if (generation !== authGeneration) return;
   const view = shell.dataset.mobileView;
   if (view === "editor" || (!narrowViewport.matches && state.note && !editor.hidden)) {
     if (state.mode === "knowledge") $("#reader-title").focus();
@@ -109,19 +177,81 @@ async function openWorkspace() {
   }
 }
 
+async function useSession(session) {
+  state.security = session.security ?? NO_SECURITY;
+  if (session.locked) showAuth("unlock");
+  else if (session.authenticated) await openWorkspace();
+  else showAuth(session.setup_required ? "setup" : "login");
+}
+
 async function checkAuthentication() {
   authForm.hidden = true;
-  $("#auth-retry").hidden = true;
-  $("#auth-description").textContent = "Checking your account…";
+  authPinForm.hidden = true;
+  authUnlockForm.hidden = true;
+  authRetry.hidden = true;
+  authDescription.textContent = "Checking your account…";
   try {
-    const session = await api("/api/auth/status");
-    if (session.authenticated) await openWorkspace();
-    else showAuth(session.setup_required ? "setup" : "login");
+    const session = pageOpened
+      ? await api("/api/auth/status")
+      : await api("/api/auth/open", { method: "POST", body: JSON.stringify({ opening: true }) });
+    pageOpened = true;
+    await useSession(session);
   } catch (error) {
-    $("#auth-description").textContent = error.message;
-    $("#auth-retry").hidden = false;
-    $("#auth-retry").focus();
+    authDescription.textContent = error.message;
+    authRetry.hidden = false;
+    authRetry.focus();
   }
+}
+
+function applySessionCheck(session, generation, revision) {
+  if (shell.hidden || generation !== authGeneration) return;
+  if (revision === securityRevision) state.security = session.security ?? NO_SECURITY;
+  if (session.locked) showAuth("unlock");
+  else if (!session.authenticated) showAuth("login", expiredSessionMessage());
+}
+
+async function checkWorkspaceSession() {
+  if (checkingSession || shell.hidden) return;
+  const generation = authGeneration;
+  const revision = securityRevision;
+  checkingSession = true;
+  try {
+    applySessionCheck(await api("/api/auth/status"), generation, revision);
+  } catch {
+    // A temporary connection failure is not a lock; check again on the next poll or focus.
+  } finally {
+    checkingSession = false;
+  }
+}
+
+function canReportActivity() {
+  return !shell.hidden && !document.hidden && document.hasFocus() && state.security.idle_minutes > 0;
+}
+
+function cancelActivityReport() {
+  clearTimeout(activityTimer);
+  activityTimer = undefined;
+}
+
+async function reportActivity() {
+  activityTimer = undefined;
+  if (!canReportActivity()) return;
+  const generation = authGeneration;
+  const revision = securityRevision;
+  lastActivityReported = performance.now();
+  try {
+    const session = await api("/api/auth/activity", { method: "POST" });
+    applySessionCheck(session, generation, revision);
+  } catch {
+    // The API handler shows a lock or expired session; otherwise wait for further real input.
+  }
+}
+
+function recordActivity(event) {
+  if (!event.isTrusted || activityTimer !== undefined || !canReportActivity()) return;
+  const wait = ACTIVITY_INTERVAL - (performance.now() - lastActivityReported);
+  if (wait <= 0) reportActivity();
+  else activityTimer = setTimeout(reportActivity, wait);
 }
 
 function encode(value) { return encodeURIComponent(value); }
@@ -163,7 +293,61 @@ function noteApi(note) {
   return sourceApi(note.number === undefined ? `${root}/other-notes/${encode(note.filename)}` : `${root}/sessions/${note.number}`);
 }
 
+function deletionTarget(control) {
+  const { mode, source, client, note, topic, material } = state;
+  if (!source) return null;
+  if (control === "note" && note && client) {
+    const payload = note.number === undefined
+      ? { kind: "other-note", client, filename: note.filename }
+      : { kind: "session", client, number: note.number };
+    return { mode, source, payload, label: noteTitle(note) };
+  }
+  if (control === "material" && material) {
+    return { mode, source, payload: { kind: "material", path: material }, label: $("#reader-title").textContent };
+  }
+  if (control === "folder" && mode === "clients" && client) {
+    return { mode, source, payload: { kind: "client", client }, label: client };
+  }
+  if (control === "folder" && topic && topic !== ".") {
+    return { mode, source, payload: { kind: "topic", path: topic }, label: topicName(topic) };
+  }
+  return null;
+}
+
+async function refreshAfterDeletion({ mode, source, payload }, restored) {
+  if (state.mode !== mode || state.source !== source) return;
+  const { kind, client, path } = payload;
+  const wasEditor = shell.dataset.mobileView === "editor";
+  if (mode === "clients") {
+    await loadClients(restored ? client : state.client);
+    if (!state.clients.length) {
+      await openSource(mode, source);
+    } else if (restored && kind !== "client") {
+      await selectNote(payload, wasEditor);
+    } else if (!restored && kind === "client") {
+      setMobileView("clients", $("#panel-title"));
+    } else if (!state.note && wasEditor) {
+      setMobileView("sessions", $("#selected-client"));
+    }
+    return;
+  }
+
+  ({ topics: state.topics } = await api(sourceApi("/api/knowledge")));
+  if (!state.topics.length) {
+    await openSource(mode, source);
+    return;
+  }
+  const preferred = !restored ? state.topic : kind === "topic" ? path : path.split("/").slice(0, -1).join("/") || ".";
+  const next = state.topics.find((item) => item.path === preferred) ?? state.topics[0];
+  state.topic = null;
+  await selectTopic(next.path, false);
+  if (restored && kind === "material") await selectMaterial(path, wasEditor);
+  else if (!restored && kind === "topic") setMobileView("clients", $("#panel-title"));
+  else if (!state.material && wasEditor) setMobileView("sessions", $("#selected-client"));
+}
+
 function setMobileView(view, focusTarget) {
+  if (shell.dataset.mobileView !== view) closeDelete();
   shell.dataset.mobileView = view;
   if (narrowViewport.matches) {
     window.scrollTo(0, 0);
@@ -252,6 +436,7 @@ async function openSource(mode, path = modeSources(mode)[0]?.path) {
     $("#selected-avatar").append(icon);
   }
   $("#selected-avatar").style.removeProperty("--avatar");
+  $('[data-delete="folder"]').hidden = true;
   noteSections.hidden = true;
   $("#material-count").classList.toggle("hidden", !knowledge);
   materialList.classList.toggle("hidden", !knowledge);
@@ -339,6 +524,7 @@ async function selectTopic(path, switchView = true) {
     return;
   }
   state.topic = path;
+  $('[data-delete="folder"]').hidden = path === ".";
   state.material = null;
   $("#selected-client").textContent = topicName(path);
   $("#selected-client").title = topicName(path);
@@ -368,6 +554,7 @@ function renderMaterials() {
 async function selectMaterial(path, switchView = true) {
   if (state.material !== path) {
     const item = await api(sourceApi("/api/material", { path }));
+    closeDelete();
     const source = modeSources().find((folder) => folder.path === state.source);
     $("#reader-crumb").textContent = state.topic === "." ? source.name : `${source.name}  /  ${topicName(state.topic)}`;
     $("#reader-title").textContent = item.title;
@@ -433,6 +620,7 @@ async function selectClient(name, switchView = true) {
   $("#selected-client").title = name;
   $("#selected-avatar").textContent = client?.initials || "";
   $("#selected-avatar").style.setProperty("--avatar", colorFor(name));
+  $('[data-delete="folder"]').hidden = false;
   $("#new-session").disabled = false;
   state.sessions = sessions.sessions;
   state.otherNotes = otherNotes.notes;
@@ -480,6 +668,7 @@ async function selectNote(reference, switchView = true) {
   const path = noteApi(reference);
   if (!state.note || path !== noteApi(state.note)) {
     const note = await api(path);
+    closeDelete();
     state.note = reference;
     state.etag = note.etag;
     state.dirty = false;
@@ -517,6 +706,7 @@ function setNoteMode(mode) {
 }
 
 function showEmptyEditor() {
+  closeDelete();
   $("#empty-state").classList.remove("hidden");
   $("#editor-workspace").classList.add("hidden");
   $("#reader-workspace").classList.add("hidden");
@@ -623,6 +813,112 @@ for (const [index, tab] of settingsTabs.entries()) {
 const settingsDraft = { root: "", input: "", parent: ".", folders: null, sources: [], request: 0 };
 const folderChoice = $("#folder-choice");
 const notesRoot = $("#notes-root");
+const securityForm = $("#security-form");
+const securityEnabled = $("#security-enabled");
+const securityPinOptions = $("#security-pin-options");
+const securityAskOnOpen = $("#security-ask-on-open");
+const securityIdleMinutes = $("#security-idle-minutes");
+const securityRequireOnDelete = $("#security-require-on-delete");
+const securityChangePin = $("#security-change-pin");
+const securityNewPinField = $("#security-new-pin-field");
+const securityNewPin = $("#security-new-pin");
+const securityPassword = $("#security-password");
+const securityMessageElement = $("#security-message");
+const securityDraft = { configured: false, changingPin: false, ready: false, saving: false, request: 0 };
+
+function securityMessage(message = "", error = false) {
+  securityMessageElement.textContent = message;
+  securityMessageElement.classList.toggle("error", error);
+}
+
+function renderSecurityControls() {
+  const enabled = securityEnabled.checked;
+  const editPin = enabled && (!securityDraft.configured || securityDraft.changingPin);
+  const disabled = !securityDraft.ready || securityDraft.saving;
+  securityPinOptions.hidden = !enabled;
+  securityChangePin.hidden = !enabled || !securityDraft.configured;
+  securityChangePin.textContent = securityDraft.changingPin ? "Cancel PIN change" : "Change PIN";
+  securityNewPinField.hidden = !editPin;
+  securityNewPin.required = editPin;
+  for (const control of securityForm.elements) control.disabled = disabled;
+  securityNewPin.disabled = disabled || !editPin;
+  securityAskOnOpen.disabled = disabled || !enabled;
+  securityIdleMinutes.disabled = disabled || !enabled;
+  securityRequireOnDelete.disabled = disabled || !enabled;
+}
+
+function resetSecurityForm() {
+  securityForm.reset();
+  securityDraft.request++;
+  Object.assign(securityDraft, { configured: false, changingPin: false, ready: false, saving: false });
+  renderSecurityControls();
+  securityMessage();
+}
+
+function fillSecurityForm(settings) {
+  securityForm.reset();
+  Object.assign(securityDraft, { configured: settings.enabled, changingPin: false, ready: true });
+  securityEnabled.checked = settings.enabled;
+  securityAskOnOpen.checked = settings.ask_on_open;
+  securityIdleMinutes.value = settings.idle_minutes;
+  securityRequireOnDelete.checked = settings.require_on_delete;
+  renderSecurityControls();
+}
+
+function installSecuritySettings(settings) {
+  securityRevision++;
+  state.security = settings;
+}
+
+async function loadSecuritySettings() {
+  resetSecurityForm();
+  const request = securityDraft.request;
+  securityMessage("Loading security settings…");
+  try {
+    const settings = await api("/api/security");
+    if (request !== securityDraft.request || !settingsDialog.open) return;
+    installSecuritySettings(settings);
+    fillSecurityForm(settings);
+    securityMessage();
+  } catch (error) {
+    if (request === securityDraft.request && settingsDialog.open) securityMessage(error.message, true);
+  }
+}
+
+async function changeSecurity(event) {
+  event.preventDefault();
+  if (!securityDraft.ready || securityDraft.saving) return;
+  const enabled = securityEnabled.checked;
+  const payload = {
+    enabled,
+    ask_on_open: enabled && securityAskOnOpen.checked,
+    idle_minutes: enabled ? Number(securityIdleMinutes.value) : 0,
+    require_on_delete: enabled && securityRequireOnDelete.checked,
+    password: securityPassword.value,
+  };
+  if (!securityNewPin.disabled) payload.new_pin = securityNewPin.value;
+  const request = securityDraft.request;
+  const generation = authGeneration;
+  securityDraft.saving = true;
+  renderSecurityControls();
+  securityMessage("Saving security settings…");
+  try {
+    const settings = await api("/api/security", { method: "PUT", body: JSON.stringify(payload) });
+    if (generation === authGeneration) installSecuritySettings(settings);
+    if (request !== securityDraft.request || !settingsDialog.open) return;
+    fillSecurityForm(settings);
+    securityMessage("Security settings saved.");
+  } catch (error) {
+    if (request !== securityDraft.request || !settingsDialog.open) return;
+    securityPassword.value = "";
+    securityMessage(error.message, true);
+  } finally {
+    if (request === securityDraft.request && settingsDialog.open) {
+      securityDraft.saving = false;
+      renderSecurityControls();
+    }
+  }
+}
 
 function settingsMessage(message = "", error = false) {
   const summary = $("#settings-summary");
@@ -704,9 +1000,9 @@ async function openSettings() {
     settingsMessage();
     renderFolderSettings();
     activateSettingsTab($("#vault-tab"));
-    $("#settings-dialog").showModal();
+    settingsDialog.showModal();
     $("#vault-tab").focus();
-    await browseFolders();
+    await Promise.all([browseFolders(), loadSecuritySettings()]);
   } catch (error) { toast(error.message); }
 }
 
@@ -759,36 +1055,87 @@ function escapeHtml(value) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
-$("#auth-retry").addEventListener("click", checkAuthentication);
+authRetry.addEventListener("click", checkAuthentication);
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (authSubmit.disabled) return;
-  if (authMode === "setup" && authPassword.value !== authConfirm.value) {
-    authError.textContent = "The passwords do not match.";
-    authConfirm.focus();
+  if (authSubmit.disabled || authForm.hidden) return;
+  if (authMode === "setup") {
+    if (authPassword.value !== authConfirm.value) {
+      authError.textContent = "The passwords do not match.";
+      authConfirm.focus();
+      return;
+    }
+    showSignupPinStep(true);
     return;
   }
   authSubmit.disabled = true;
+  authUsePin.disabled = true;
   authError.textContent = "";
   try {
-    await api(`/api/auth/${authMode}`, {
+    const session = await api("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: authUsername.value, password: authPassword.value }),
     });
-    authForm.reset();
-    await openWorkspace();
+    await useSession(session);
   } catch (error) {
-    if (error.status === 409 && authMode === "setup") {
-      await checkAuthentication();
-    } else {
-      authError.textContent = error.message;
-      if (error.status === 401) {
-        authPassword.value = "";
-        authPassword.focus();
-      }
+    authError.textContent = error.message;
+    if (error.status === 401) {
+      authPassword.value = "";
+      authPassword.focus();
     }
   } finally {
     authSubmit.disabled = false;
+    authUsePin.disabled = false;
+  }
+});
+
+async function createAccount(pin) {
+  if (authPinSubmit.disabled || authPinForm.hidden) return;
+  authPinSubmit.disabled = authPinSkip.disabled = true;
+  authPinBack.disabled = true;
+  authPinError.textContent = "";
+  const credentials = { username: authUsername.value, password: authPassword.value };
+  if (pin !== undefined) credentials.pin = pin;
+  try {
+    const session = await api("/api/auth/setup", { method: "POST", body: JSON.stringify(credentials) });
+    await useSession(session);
+  } catch (error) {
+    if (error.status === 409) await checkAuthentication();
+    else authPinError.textContent = error.message;
+  } finally {
+    authPinSubmit.disabled = authPinSkip.disabled = false;
+    authPinBack.disabled = false;
+  }
+}
+
+authPinForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  createAccount(authSignupPin.value);
+});
+authPinSkip.addEventListener("click", () => createAccount());
+authPinBack.addEventListener("click", () => showSignupPinStep(false));
+authUsePassword.addEventListener("click", () => showAuth("recover"));
+authUsePin.addEventListener("click", () => showAuth("unlock"));
+authUnlockForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (authUnlockSubmit.disabled || authUnlockForm.hidden) return;
+  authUnlockSubmit.disabled = authUsePassword.disabled = true;
+  authUnlockError.textContent = "";
+  try {
+    const session = await api("/api/auth/unlock", {
+      method: "POST",
+      body: JSON.stringify({ pin: authUnlockPin.value }),
+    });
+    await useSession(session);
+  } catch (error) {
+    if (error.status === 401) showAuth("login", expiredSessionMessage());
+    else {
+      authUnlockPin.value = "";
+      authUnlockPin.focus();
+      authUnlockError.textContent = error.message;
+    }
+  } finally {
+    authUnlockSubmit.disabled = authUsePassword.disabled = false;
   }
 });
 $("#sign-out").addEventListener("click", (event) => {
@@ -877,11 +1224,26 @@ settingsDialog.addEventListener("close", () => {
   settingsPressOnBackdrop = false;
   clearTimeout(rootTimer);
   settingsDraft.request++;
+  if (!settingsDialog.open) resetSecurityForm();
 });
 $("#open-settings").addEventListener("click", openSettings);
 $("#settings-close").addEventListener("click", () => $("#settings-dialog").close());
 $("#settings-cancel").addEventListener("click", () => $("#settings-dialog").close());
 $("#settings-form").addEventListener("submit", changeVault);
+securityForm.addEventListener("submit", changeSecurity);
+securityEnabled.addEventListener("change", () => {
+  if (!securityEnabled.checked) {
+    securityDraft.changingPin = false;
+    securityNewPin.value = "";
+  }
+  renderSecurityControls();
+});
+securityChangePin.addEventListener("click", () => {
+  securityDraft.changingPin = !securityDraft.changingPin;
+  securityNewPin.value = "";
+  renderSecurityControls();
+  if (securityDraft.changingPin) securityNewPin.focus();
+});
 $("#client-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const name = $("#client-name").value.trim();
@@ -900,8 +1262,22 @@ document.addEventListener("keydown", async (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#client-search").focus(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); await saveNote(); }
 });
+for (const type of ["pointerdown", "pointermove", "keydown", "click", "input", "wheel"]) {
+  window.addEventListener(type, recordActivity, { capture: true, passive: true });
+}
+window.addEventListener("blur", cancelActivityReport);
+window.addEventListener("focus", checkWorkspaceSession);
+window.addEventListener("pageshow", checkWorkspaceSession);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelActivityReport();
+  else checkWorkspaceSession();
+});
+setInterval(checkWorkspaceSession, SESSION_CHECK_INTERVAL);
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
 
+const closeDelete = initDeletion({
+  api, navigate, targetFor: deletionTarget, requirePin: () => state.security.require_on_delete, refresh: refreshAfterDeletion,
+});
 initAppearance();
 shell.dataset.mobileView = "clients";
 checkAuthentication();
