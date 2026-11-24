@@ -45,12 +45,6 @@
 
         <nav id="client-list" class="client-list" aria-live="polite"></nav>
 
-        <div class="theme-switch" role="group" aria-label="Color mode">
-          <button type="button" data-color-mode="light" aria-pressed="true">Light</button>
-          <button type="button" data-color-mode="dark" aria-pressed="false">Dark</button>
-          <button type="button" data-color-mode="auto" aria-pressed="false">Auto</button>
-        </div>
-
         <footer class="vault-footer">
           <div class="vault-status">
             <span class="pulse"></span>
@@ -59,7 +53,20 @@
               <span id="vault-location">Plain Markdown · Syncthing ready</span>
             </div>
           </div>
-          <button class="settings-button" id="open-settings" aria-label="Settings" title="Settings">⚙</button>
+          <div class="vault-actions">
+            <div class="theme-switch" role="group" aria-label="Color mode">
+              <button type="button" data-color-mode="light" aria-pressed="true" aria-label="Light" title="Light">
+                <span class="theme-icon sun-icon" aria-hidden="true"></span>
+              </button>
+              <button type="button" data-color-mode="dark" aria-pressed="false" aria-label="Dark" title="Dark">
+                <span class="theme-icon moon-icon" aria-hidden="true"></span>
+              </button>
+              <button type="button" data-color-mode="auto" aria-pressed="false" aria-label="Auto" title="Auto (sunrise and sunset)">
+                <span class="theme-icon auto-icon" aria-hidden="true">A</span>
+              </button>
+            </div>
+            <button class="settings-button" id="open-settings" aria-label="Settings" title="Settings"><span class="settings-glyph" aria-hidden="true"></span></button>
+          </div>
         </footer>
       </aside>
 

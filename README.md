@@ -86,7 +86,7 @@ The [Hearthnote app icon](app/static/app-icon.png) is a 256 × 256 PNG with the 
 
 ## Appearance
 
-Use **Light**, **Dark**, or **Auto** above the vault footer to switch modes. In **Settings → Appearance**, choose the Light and Dark palettes for **Clients** and **Knowledge** independently. The original Hearthnote light palettes and 12 VS Code-inspired options are available, with previews and soft gradients.
+Use the sun, moon, or circled **A** next to **Settings** to switch between **Light**, **Dark**, and **Auto**. In **Settings → Appearance**, choose the Light and Dark palettes for **Clients** and **Knowledge** independently. The original Hearthnote light palettes and 12 VS Code-inspired options are available, with previews and soft gradients.
 
 Under **Auto mode location**, let the browser detect your location or enter latitude and longitude manually. Auto uses that location's sunrise and sunset. With no location set, it uses light mode from 07:00 until 19:00 in device time. Coordinates and preferences are stored in this browser. The manual option also works when browsers restrict geolocation on an HTTP NAS installation. [Solar position equations](https://gml.noaa.gov/grad/solcalc/solareqns.PDF)
 

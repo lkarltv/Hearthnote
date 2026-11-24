@@ -96,38 +96,78 @@ kbd { flex: 0 0 auto; white-space: nowrap; padding: 2px 5px; border: 1px solid v
 .client-card.active .client-arrow, .client-card:hover .client-arrow { opacity: 1; }
 .no-results { padding: 26px 12px; color: var(--muted); font-size: 13px; text-align: center; }
 
-.theme-switch {
-  display: grid;
-  flex-shrink: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-  margin: 8px 4px 10px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-}
+.vault-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; margin-left: auto; }
+.theme-switch { display: flex; gap: 1px; padding: 2px; border: 1px solid var(--line); border-radius: 9px; }
 .theme-switch button {
-  min-height: 29px;
-  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
   cursor: pointer;
 }
-.theme-switch button[aria-pressed="true"] { background: var(--active-surface); color: var(--ink); }
-.theme-switch button:hover { color: var(--ink); }
+.theme-switch button:hover { background: var(--hover-surface); color: var(--ink); }
+.theme-switch button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
 .theme-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.vault-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 5px 2px; border-top: 1px solid var(--line); }
-.vault-status { display: flex; min-width: 0; align-items: center; gap: 10px; }
-.pulse { width: 8px; height: 8px; border: 2px solid var(--accent-soft); border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(97,120,104,.10); }
+.theme-icon { display: grid; position: relative; place-items: center; width: 16px; height: 16px; }
+.sun-icon::before { width: 8px; height: 8px; border: 1.4px solid currentColor; border-radius: 50%; content: ""; }
+.sun-icon::after {
+  position: absolute;
+  width: 1.5px;
+  height: 1.5px;
+  border-radius: 50%;
+  box-shadow: 0 -7px, 5px -5px, 7px 0, 5px 5px, 0 7px, -5px 5px, -7px 0, -5px -5px;
+  content: "";
+}
+.moon-icon::before {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: currentColor;
+  mask-image: radial-gradient(circle at 73% 23%, transparent 5px, black 5.5px);
+  content: "";
+}
+.auto-icon {
+  width: 16px;
+  height: 16px;
+  border: 1px solid transparent;
+  border-top-color: currentColor;
+  border-bottom-color: currentColor;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.auto-icon::before, .auto-icon::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 3px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  content: "";
+}
+.auto-icon::after { inset: auto auto 0 0; transform: rotate(180deg); }
+.vault-footer { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 7px; padding: 11px 5px 2px; border-top: 1px solid var(--line); }
+.vault-status { display: flex; flex: 1 1 85px; min-width: 0; align-items: center; gap: 8px; }
+.pulse { flex: 0 0 8px; width: 8px; height: 8px; border: 2px solid var(--accent-soft); border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(97,120,104,.10); }
 .vault-status strong, .vault-status span { display: block; }
 .vault-status strong { font-size: 11px; }
 .vault-status div { min-width: 0; }
 .vault-status span { max-width: 175px; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-button { display: grid; flex: 0 0 auto; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.settings-glyph {
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  clip-path: polygon(40% 0, 60% 0, 64% 15%, 75% 20%, 88% 15%, 100% 32%, 90% 44%, 90% 56%, 100% 68%, 88% 85%, 75% 80%, 64% 85%, 60% 100%, 40% 100%, 36% 85%, 25% 80%, 12% 85%, 0 68%, 10% 56%, 10% 44%, 0 32%, 12% 15%, 25% 20%, 36% 15%);
+  mask-image: radial-gradient(circle, transparent 2.4px, black 2.8px);
+}
 .settings-button:hover { border-color: var(--line); background: var(--hover-surface); color: var(--ink); }
 
 .sessions-header { padding: 32px 26px 22px; border-bottom: 1px solid var(--line); }
@@ -342,7 +382,6 @@ dialog p.root-help { margin: 7px 0 17px; }
   .app-shell { grid-template-columns: minmax(190px, 286px) minmax(215px, 320px) minmax(310px, 1fr); }
   [data-mode="knowledge"] :is(.clients-panel, .sessions-panel) { display: flex; flex-direction: column; height: 100vh; }
   [data-mode="knowledge"] :is(.session-list, .client-list) { overflow-y: auto; }
-  [data-mode="knowledge"] .vault-footer { flex-shrink: 0; }
 }
 @media (min-width: 721px) and (max-width: 1045px) {
   .app-shell { grid-template-columns: minmax(185px, 25%) minmax(200px, 28%) minmax(0, 1fr); }
@@ -356,6 +395,7 @@ dialog p.root-help { margin: 7px 0 17px; }
 }
 
 @media (max-width: 460px) {
+  .theme-switch button { width: 32px; height: 32px; }
   .appearance-themes { grid-template-columns: minmax(0, 1fr); }
   .theme-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
