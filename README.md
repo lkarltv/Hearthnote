@@ -1,73 +1,102 @@
 # Hearthnote
 
-A small, self-hosted web interface for coaching session notes stored as plain Markdown files.
+Hearthnote is a self-hosted coaching workspace for Markdown files. Use **Clients** to write session notes and **Knowledge** to browse educational materials and worksheet templates. The same files can be opened in Obsidian or synchronized with Syncthing.
 
-Hearthnote expects this folder structure:
+![Hearthnote in dark mode showing the client sidebar, session list, and Markdown editor](docs/hearthnote-clients.png)
 
-```text
-Coaching notes/
-  Client name/
-    Session 1.md
-    Session 2.md
-```
+## Try the demo
 
-The Markdown files remain the source of truth, so the same folder can still be opened in Obsidian and synchronized with Syncthing.
-
-## Run the demo
-
-Python 3.11+ is the only requirement.
+Run from the project directory with Python 3.11 or later. Hearthnote uses only the Python standard library and browser APIs.
 
 ```bash
 python -m app.server
 ```
 
-Open <http://localhost:8000>. By default the app uses the included synthetic notes in `synthetic_data/Coaching notes`.
-
-Click the gear beside **Vault connected** to choose your Obsidian vault or its `Coaching notes` folder. Hearthnote validates read/write access before switching and remembers the selection in `~/.config/hearthnote/settings.json`.
-
-You can also set the initial location from the terminal:
+Or start it with Docker Compose:
 
 ```bash
-NOTES_ROOT="/path/to/your/obsidian-vault" python -m app.server
+docker compose up --build -d
 ```
 
-## Run with Docker
+Open [Hearthnote on localhost](http://localhost:8000). The included `synthetic_data` contains five fictional clients, five career-coaching notes, and four worksheet templates. Open **Knowledge** and use the folder menu to switch between **Educational materials** and **Worksheet bases**.
+
+## Connect your coaching folder
+
+Point Hearthnote at a folder with the following layout. Folder names can vary because you assign each folder a content type in Settings.
+
+```text
+Coaching/
+  Clients/
+    Client name/
+      Session 1.md
+  Educational materials/
+    Career direction/
+      What makes work a good fit.md
+  Worksheet bases/
+    Career direction/
+      Career fit map.md
+```
+
+1. Open **Settings → Vault settings** using the gear next to **Vault connected**.
+2. Set **Coaching root** to the absolute folder path. With the included Docker Compose setup, use `/vault`.
+3. Choose a folder from **Browse folders**. Use **Open** to browse into a subfolder and **Add folder** to include a folder as **Clients** or **Knowledge**.
+4. Select **Save settings**. You can add multiple folders per type, change a folder's type, or remove it from the workspace. Removing a folder from Settings leaves its files on disk.
+
+Hearthnote suggests `Clients`, `Educational materials`, and `Worksheet bases` when it finds them. The older `Coaching notes/Client name/Session 1.md` layout works too. A typical Obsidian vault can be mounted directly if it contains a `Coaching` or `Coaching notes` folder.
+
+When running Python directly, the default settings file is `~/.config/hearthnote/settings.json`. Set `NOTES_ROOT` to choose the initial folder and `CONFIG_PATH` to use a different settings file.
+
+### Mount a folder in Docker
+
+Set the host path when starting Compose:
 
 ```bash
-docker compose up --build
+HEARTHNOTE_VAULT_PATH="/absolute/path/to/Coaching" docker compose up --build -d
 ```
 
-Containers cannot browse arbitrary host paths. Set the host vault path before starting Compose:
+You can put that assignment in a local `.env` file to reuse it. Compose mounts the folder at `/vault` and stores the configured sources in the `hearthnote-config` volume. If you switch from the demo to your vault and the previous selections still appear, select the folders in the new mount under **Vault settings**.
 
-```bash
-HEARTHNOTE_VAULT_PATH="/absolute/path/to/your/obsidian-vault" docker compose up --build -d
-```
+For a manually configured container or NAS, set the following mounts and environment variables:
 
-The vault appears inside the container as `/vault`; that is the path shown in the settings screen. The named `hearthnote-config` volume remembers settings across container replacements. The Compose file's `Z` suffix supplies the correct SELinux label on hosts that enforce it. Remove it if your NAS volume editor expects only a source and destination.
-
-To avoid retyping the path, create an untracked `.env` file:
+| Mount | Access |
+| --- | --- |
+| Host coaching folder → `/vault` | Read/write for client notes |
+| Persistent app-data folder → `/config` | Read/write |
 
 ```dotenv
-HEARTHNOTE_VAULT_PATH="/absolute/path/to/your/obsidian-vault"
+NOTES_ROOT=/vault
+VAULT_BOUNDARY=/vault
+CONFIG_PATH=/config/settings.json
 ```
 
-If you deploy through a NAS UI, add two mounts:
+The supplied Compose file uses the `:Z` suffix for SELinux labeling.
 
-- Your Obsidian vault on the host → `/vault` in the container, read/write
-- A persistent app-data directory or volume → `/config` in the container, read/write
+### TrueNAS and HexOS app icon
 
-Keep the app private to your LAN or VPN and put authentication in front of it before using real client notes.
+The [Hearthnote app icon](app/static/app-icon.png) is a 256 × 256 PNG with the same H mark as the app header and browser favicon. Hearthnote serves it at `/app-icon.png`. Use the full URL on your NAS, for example `http://nas-host:8000/app-icon.png`, or use an HTTPS URL reachable by the dashboard.
 
-## MVP features
+- **TrueNAS** reads a custom app's tile icon from `metadata.icon`. For an existing custom YAML installation, add or replace only the `icon` entry under `metadata` in `/mnt/.ix-apps/app_configs/<app-name>/metadata.yaml`. Then save the app through **Apps → Installed → Hearthnote → Edit** to reload its metadata, and refresh the Apps page. This is a TrueNAS-side customization. [Custom app icon example](https://jellyfin.org/docs/general/installation/advanced/truenas/#adding-the-jellyfin-logo-to-custom-apps)
+- **HexOS** custom install scripts and catalog entries supply their icon through `metadata.icon`. Use the same PNG as the script's icon asset. An existing app installed through TrueNAS gets its icon from the NAS app metadata where the Command Deck uses it. [HexOS app metadata example](https://github.com/eshtek/hexos-app-catalog/blob/main/kodi.json)
 
-- Client and session discovery from the filesystem
-- Configurable, persisted Obsidian vault location
-- Searchable client navigation
-- Automatic creation of the next `Session n.md`
-- Debounced autosave with atomic file replacement
-- Conflict detection if another program changes a note while it is open
-- Responsive layout for desktop and mobile
-- No database and no proprietary file format
+## Use the workspace
+
+- **Clients** shows searchable client folders, a list of numbered sessions, and a Markdown editor. It creates the next numbered session and accepts names such as `Session 1.md` and `session1.md`. Changes autosave, and Hearthnote flags a conflict if the file changes on disk while you edit it. Long client names wrap to two lines, then show an ellipsis. Hover over a name to see it in full.
+- **Knowledge** shows topics, materials, and a read-only Markdown reader. Each folder containing Markdown files, including nested folders, becomes a topic. Files at the source root appear under **General**. Search matches topic names and material titles. The reader renders headings, lists, checklists, tables, quotes, and code blocks.
+- **Keyboard shortcuts** use `Ctrl+K` or `⌘K` for search and `Ctrl+S` or `⌘S` to save a client note. On mobile, use the back buttons to move between columns.
+
+## Appearance
+
+Use **Light**, **Dark**, or **Auto** above the vault footer to switch modes. In **Settings → Appearance**, choose the Light and Dark palettes for **Clients** and **Knowledge** independently. The original Hearthnote light palettes and 12 VS Code-inspired options are available, with previews and soft gradients.
+
+Under **Auto mode location**, let the browser detect your location or enter latitude and longitude manually. Auto uses that location's sunrise and sunset. With no location set, it uses light mode from 07:00 until 19:00 in device time. Coordinates and preferences are stored in this browser. The manual option also works when browsers restrict geolocation on an HTTP NAS installation. [Solar position equations](https://gml.noaa.gov/grad/solcalc/solareqns.PDF)
+
+Use **Keyboard shortcut hints** in the same tab to choose **Automatic**, **Mac (⌘)**, or **PC (Ctrl)**. Appearance changes apply immediately.
+
+Palette sources include [One Dark Pro](https://github.com/Binaryify/OneDark-Pro), [Dracula](https://draculatheme.com/contribute), [GitHub Dark and Light Default](https://github.com/primer/github-vscode-theme), [Night Owl](https://github.com/sdras/night-owl-vscode-theme), [Tokyo Night](https://github.com/tokyo-night/tokyo-night-vscode-theme), [Catppuccin Mocha and Latte](https://github.com/catppuccin/catppuccin), [Gruvbox Dark](https://marketplace.visualstudio.com/items?itemName=jdinhlife.gruvbox), [Nord](https://www.nordtheme.com/docs/colors-and-palettes/), [Monokai](https://github.com/microsoft/vscode/tree/main/extensions/theme-monokai), and [Solarized Light](https://github.com/microsoft/vscode/tree/main/extensions/theme-solarized-light).
+
+## Privacy and deployment
+
+Hearthnote has no built-in authentication. The Python command listens on loopback by default. The Compose mapping publishes port 8000 on all host interfaces by default. To use Compose locally with private notes, change the mapping to `127.0.0.1:8000:8000`. For remote access, put authentication and HTTPS in front of the app. Keep real vaults and their backups outside the project directory when sharing the source. The included demo notes are fictional.
 
 ## Tests
 
@@ -75,7 +104,6 @@ Keep the app private to your LAN or VPN and put authentication in front of it be
 python -m unittest discover -s tests -v
 ```
 
-## Security scope
+## License
 
-This MVP intentionally does not include authentication. Bind it only to a trusted network while prototyping. A production deployment should add single-user authentication, HTTPS, backups, and a restricted container mount exposing only the coaching notes folder.
-
+Hearthnote is licensed under the **GNU General Public License, version 3 only** (`GPL-3.0-only`). See [LICENSE](LICENSE) for the full license text.

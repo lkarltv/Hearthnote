@@ -25,6 +25,17 @@ class NotesStoreTests(unittest.TestCase):
         (directory / "Session 4.md").write_text("four", encoding="utf-8")
         self.assertEqual(self.store.create_session("Test Client")["number"], 5)
 
+    def test_session_without_space_keeps_its_original_filename(self):
+        directory = Path(self.temporary.name) / "Test Client"
+        original = directory / "session1.md"
+        original.write_text("Existing note", encoding="utf-8")
+        note = self.store.read_session("Test Client", 1)
+        self.assertEqual(self.store.list_sessions("Test Client")[0]["filename"], original.name)
+        self.store.update_session("Test Client", 1, "Updated", note["etag"])
+        self.assertEqual(original.read_text(encoding="utf-8"), "Updated")
+        self.assertFalse((directory / "Session 1.md").exists())
+        self.assertEqual(self.store.create_session("Test Client")["number"], 2)
+
     def test_stale_update_is_rejected(self):
         session = self.store.create_session("Test Client")
         self.store.update_session("Test Client", 1, "new", session["etag"])

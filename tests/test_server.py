@@ -1,4 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
+
+from app.knowledge import list_topics, read_material
+from app.store import NotFound
 
 from app.server import Handler
 
@@ -20,6 +25,27 @@ class HandlerRoutingTests(unittest.TestCase):
         self.assertIsNone(
             Handler._match_client_path("/api/clients/Avery%20Chen/sessions/latest")
         )
+
+
+class KnowledgeTests(unittest.TestCase):
+    def test_lists_and_reads_nested_markdown_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Educational materials"
+            career = root / "Career" / "Planning"
+            career.mkdir(parents=True)
+            (career / "Worksheet 1.md").write_text("# Career worksheet", encoding="utf-8")
+            (career / "attachment.pdf").touch()
+            (root / "Overview.md").touch()
+            outside = Path(directory) / "outside.md"
+            outside.write_text("Private", encoding="utf-8")
+            (root / "linked.md").symlink_to(outside)
+            self.assertEqual([topic["path"] for topic in list_topics(root)], [".", "Career/Planning"])
+            relative = "Career/Planning/Worksheet 1.md"
+            self.assertEqual(list_topics(root)[1]["materials"], [{"path": relative, "title": "Worksheet 1"}])
+            self.assertEqual(read_material(root, relative)["content"], "# Career worksheet")
+            for path in ("../outside.md", "linked.md", "Career/Planning/attachment.pdf"):
+                with self.subTest(path=path), self.assertRaises(NotFound):
+                    read_material(root, path)
 
 
 if __name__ == "__main__":

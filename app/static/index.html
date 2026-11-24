@@ -5,34 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f4f0e8" />
     <title>Hearthnote — Coaching notes</title>
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="clients-panel" aria-label="Clients">
         <header class="brand">
-          <div class="brand-mark" aria-hidden="true">H</div>
+          <img class="brand-mark" src="/app-icon.png" width="38" height="38" alt="" />
           <div>
             <strong>Hearthnote</strong>
             <span>Coaching workspace</span>
           </div>
         </header>
 
+        <nav class="section-switch" aria-label="Content type">
+          <button type="button" data-mode="clients" aria-pressed="true">Clients</button>
+          <button type="button" data-mode="knowledge" aria-pressed="false">Knowledge</button>
+        </nav>
+
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">Your practice</p>
-            <h1>Clients</h1>
+            <p class="eyebrow" id="panel-eyebrow">Your practice</p>
+            <h1 id="panel-title">Clients</h1>
           </div>
           <button class="icon-button dark" id="new-client" aria-label="Add client">+</button>
         </div>
 
+        <label class="source-picker hidden" id="source-picker">
+          <span>Content folder</span>
+          <select id="source-select"></select>
+        </label>
+
         <label class="search-box">
           <span aria-hidden="true">⌕</span>
-          <input id="client-search" type="search" placeholder="Find a client" autocomplete="off" />
-          <kbd>⌘ K</kbd>
+          <input id="client-search" type="search" placeholder="Find a client" aria-label="Find a client" autocomplete="off" />
+          <kbd data-shortcut-key="K">Ctrl + K</kbd>
         </label>
 
         <nav id="client-list" class="client-list" aria-live="polite"></nav>
+
+        <div class="theme-switch" role="group" aria-label="Color mode">
+          <button type="button" data-color-mode="light" aria-pressed="true">Light</button>
+          <button type="button" data-color-mode="dark" aria-pressed="false">Dark</button>
+          <button type="button" data-color-mode="auto" aria-pressed="false">Auto</button>
+        </div>
 
         <footer class="vault-footer">
           <div class="vault-status">
@@ -42,7 +59,7 @@
               <span id="vault-location">Plain Markdown · Syncthing ready</span>
             </div>
           </div>
-          <button class="settings-button" id="open-settings" aria-label="Vault settings" title="Vault settings">⚙</button>
+          <button class="settings-button" id="open-settings" aria-label="Settings" title="Settings">⚙</button>
         </footer>
       </aside>
 
@@ -52,7 +69,7 @@
           <div class="selected-person">
             <div class="avatar large" id="selected-avatar"></div>
             <div>
-              <p class="eyebrow">Working with</p>
+              <p class="eyebrow" id="selected-eyebrow">Working with</p>
               <h2 id="selected-client">Choose a client</h2>
             </div>
           </div>
@@ -66,8 +83,8 @@
         <div class="empty-state" id="empty-state">
           <div class="empty-orbit"><span>✦</span></div>
           <p class="eyebrow">A quiet place to think</p>
-          <h2>Select a client to open their notes.</h2>
-          <p>Your sessions are stored as ordinary Markdown files, right where you left them.</p>
+          <h2 id="empty-title">Select a client to open their notes.</h2>
+          <p id="empty-description">Your sessions are stored as ordinary Markdown files, right where you left them.</p>
         </div>
 
         <section id="editor-workspace" class="editor-workspace hidden" aria-label="Note editor">
@@ -95,8 +112,17 @@
 
           <footer class="editor-footer">
             <span>Autosaves as you write</span>
-            <span class="shortcut-hint"><kbd>⌘</kbd><kbd>S</kbd> Save now</span>
+            <span class="shortcut-hint"><kbd data-shortcut-key="S">Ctrl + S</kbd> Save now</span>
           </footer>
+        </section>
+
+        <section id="reader-workspace" class="reader-workspace hidden" aria-label="Knowledge reader">
+          <header class="reader-header">
+            <button class="mobile-back" id="back-to-materials" aria-label="Back to materials">←</button>
+            <p class="breadcrumb" id="reader-crumb"></p>
+            <h2 id="reader-title"></h2>
+          </header>
+          <article id="material-content" class="material-content" aria-labelledby="reader-title"></article>
         </section>
       </main>
     </div>
@@ -118,33 +144,96 @@
       </form>
     </dialog>
 
-    <dialog id="settings-dialog" class="settings-dialog">
-      <form method="dialog" id="settings-form">
-        <button class="dialog-close" id="settings-close" type="button" aria-label="Close">×</button>
-        <p class="eyebrow">Storage</p>
-        <h2>Vault location</h2>
-        <p>Choose your Obsidian vault or the <code>Coaching notes</code> folder itself. Hearthnote will find the client folders and read and write the <code>Session n.md</code> files inside them.</p>
-        <label>
-          Vault location
-          <input id="notes-root" name="notes_root" required spellcheck="false" autocomplete="off" placeholder="/home/you/Obsidian/Vault" />
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title" closedby="any">
+      <header class="settings-header">
+        <button class="dialog-close" id="settings-close" type="button" aria-label="Close settings">×</button>
+        <h2 id="settings-title">Settings</h2>
+        <div class="settings-tabs" role="tablist" aria-label="Settings">
+          <button type="button" id="vault-tab" role="tab" aria-selected="true" aria-controls="vault-panel">Vault settings</button>
+          <button type="button" id="appearance-tab" role="tab" aria-selected="false" aria-controls="appearance-panel" tabindex="-1">Appearance</button>
+        </div>
+      </header>
+      <section id="vault-panel" role="tabpanel" aria-labelledby="vault-tab">
+        <form method="dialog" id="settings-form">
+          <label>
+            Coaching root
+            <input id="notes-root" name="notes_root" required spellcheck="false" autocomplete="off" placeholder="/vault" />
+          </label>
+          <p class="root-help">In Docker, use the mounted path, usually <code>/vault</code>.</p>
+          <fieldset class="folder-settings">
+            <legend>Content folders</legend>
+            <div id="configured-folders"></div>
+            <div class="folder-browser">
+              <button type="button" id="folder-up" class="secondary-button" aria-label="Parent folder">↑</button>
+              <label>
+                Browse folders
+                <select id="folder-choice"></select>
+              </label>
+              <button type="button" id="folder-open" class="secondary-button">Open</button>
+            </div>
+            <div class="folder-add">
+              <label>
+                Add as
+                <select id="folder-type"><option value="clients">Clients</option><option value="knowledge">Knowledge</option></select>
+              </label>
+              <button type="button" id="folder-add" class="secondary-button">Add folder</button>
+            </div>
+          </fieldset>
+          <p class="settings-summary" id="settings-summary"></p>
+          <div class="dialog-actions">
+            <button type="button" id="settings-cancel" class="secondary-button">Cancel</button>
+            <button type="submit" class="primary-button">Save settings</button>
+          </div>
+        </form>
+      </section>
+      <section id="appearance-panel" class="hidden" role="tabpanel" aria-labelledby="appearance-tab">
+        <div class="appearance-themes" id="theme-palettes"></div>
+        <details class="auto-settings" id="auto-settings">
+          <summary>Auto mode location</summary>
+          <p>Auto follows sunrise and sunset for this location. Coordinates stay in this browser.</p>
+          <form id="sun-location-form">
+            <div class="location-fields">
+              <label>Latitude <input id="sun-latitude" type="number" min="-90" max="90" step="any" required /></label>
+              <label>Longitude <input id="sun-longitude" type="number" min="-180" max="180" step="any" required /></label>
+            </div>
+            <div class="location-actions">
+              <button class="secondary-button" id="sun-use-location" type="button">Use my location</button>
+              <button class="secondary-button" id="sun-clear-location" type="button">Clear</button>
+              <button class="primary-button" type="submit">Save location</button>
+            </div>
+          </form>
+          <p id="sun-location-status" role="status"></p>
+        </details>
+        <label class="shortcut-setting">
+          Keyboard shortcut hints
+          <select id="shortcut-style">
+            <option value="auto">Automatic (use device)</option>
+            <option value="mac">Mac (⌘)</option>
+            <option value="pc">PC (Ctrl)</option>
+          </select>
         </label>
-        <div class="path-example">
-          <strong>Expected structure</strong>
-          <code>Coaching notes / Client name / Session 1.md</code>
-        </div>
-        <div class="docker-notice" id="docker-notice">
-          <strong>Using Docker?</strong> The host vault must be mounted first. Enter its container path here, usually <code>/vault</code>.
-        </div>
-        <p class="settings-summary" id="settings-summary"></p>
-        <div class="dialog-actions">
-          <button type="button" id="settings-cancel" class="secondary-button">Cancel</button>
-          <button type="submit" class="primary-button">Test &amp; use folder</button>
-        </div>
-      </form>
+        <p id="appearance-status" class="appearance-status" role="status">Changes apply immediately and are saved in this browser.</p>
+      </section>
     </dialog>
 
+    <template id="theme-palette-template">
+      <fieldset class="theme-palette">
+        <legend></legend>
+        <div class="theme-choices">
+          <div class="theme-choice">
+            <label>Clients<select></select></label>
+            <div class="theme-preview" aria-hidden="true"><span></span><span></span><strong>Aa</strong></div>
+          </div>
+          <div class="theme-choice">
+            <label>Knowledge<select></select></label>
+            <div class="theme-preview" aria-hidden="true"><span></span><span></span><strong>Aa</strong></div>
+          </div>
+        </div>
+      </fieldset>
+    </template>
+
     <div class="toast" id="toast" role="alert"></div>
-    <script src="/app.js" defer></script>
+    <script src="/app.js" type="module"></script>
   </body>
 </html>
 

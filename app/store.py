@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SESSION_RE = re.compile(r"^Session ([1-9][0-9]*)\.md$")
+SESSION_RE = re.compile(r"^session ?([1-9][0-9]*)\.md$", re.IGNORECASE)
 SAFE_NAME_RE = re.compile(r"^[^/\\\x00]{1,100}$")
 
 
@@ -49,12 +49,34 @@ class NotesStore:
         return name
 
     def _client_dir(self, client: str) -> Path:
-        return self.root / self._valid_client(client)
+        path = self.root / self._valid_client(client)
+        if path.is_symlink():
+            raise NotFound("Client not found")
+        return path
 
     def _session_path(self, client: str, number: int) -> Path:
         if not isinstance(number, int) or number < 1:
             raise StoreError("Session number must be a positive integer")
-        return self._client_dir(client) / f"Session {number}.md"
+        directory = self._client_dir(client)
+        filename = self._session_files(directory).get(number, f"Session {number}.md")
+        path = directory / filename
+        if path.is_symlink():
+            raise NotFound("Session not found")
+        return path
+
+    @staticmethod
+    def _session_files(directory: Path) -> dict[int, str]:
+        if not directory.is_dir():
+            raise NotFound("Client not found")
+        files = {}
+        for path in sorted(directory.iterdir()):
+            match = SESSION_RE.fullmatch(path.name)
+            if not match or path.is_symlink() or not path.is_file():
+                continue
+            number = int(match.group(1))
+            if number not in files or path.name == f"Session {number}.md":
+                files[number] = path.name
+        return files
 
     @staticmethod
     def _iso(timestamp: float) -> str:
@@ -66,26 +88,16 @@ class NotesStore:
 
     def list_sessions(self, client: str) -> list[dict]:
         directory = self._client_dir(client)
-        if not directory.is_dir():
-            raise NotFound("Client not found")
-        sessions: list[SessionSummary] = []
-        for path in directory.iterdir():
-            match = SESSION_RE.fullmatch(path.name) if path.is_file() else None
-            if match:
-                sessions.append(
-                    SessionSummary(
-                        number=int(match.group(1)),
-                        filename=path.name,
-                        modified_at=self._iso(path.stat().st_mtime),
-                    )
-                )
-        sessions.sort(key=lambda session: session.number, reverse=True)
+        sessions = [
+            SessionSummary(number, filename, self._iso((directory / filename).stat().st_mtime))
+            for number, filename in sorted(self._session_files(directory).items(), reverse=True)
+        ]
         return [asdict(session) for session in sessions]
 
     def list_clients(self) -> list[dict]:
         clients = []
         for directory in self.root.iterdir():
-            if not directory.is_dir() or directory.name.startswith("."):
+            if directory.is_symlink() or not directory.is_dir() or directory.name.startswith(".") or not SAFE_NAME_RE.fullmatch(directory.name) or directory.name != directory.name.strip():
                 continue
             sessions = self.list_sessions(directory.name)
             latest = sessions[0] if sessions else None
@@ -138,7 +150,7 @@ class NotesStore:
             "- [ ] \n\n"
             "## Threads for next time\n\n"
         )
-        path = self._session_path(client, number)
+        path = directory / f"Session {number}.md"
         self._atomic_write(path, content, exclusive=True)
         return self.read_session(client, number)
 
@@ -163,9 +175,13 @@ class NotesStore:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            if exclusive and path.exists():
-                raise Conflict("Session already exists", {})
-            os.replace(temporary, path)
+            if exclusive:
+                try:
+                    os.link(temporary, path)
+                except FileExistsError as error:
+                    raise Conflict("Session already exists", {}) from error
+            else:
+                os.replace(temporary, path)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)

@@ -5,6 +5,7 @@ services:
       - "8000:8000"
     environment:
       NOTES_ROOT: /vault
+      VAULT_BOUNDARY: /vault
       CONFIG_PATH: /config/settings.json
     volumes:
       - "${HEARTHNOTE_VAULT_PATH:-./synthetic_data}:/vault:Z"
