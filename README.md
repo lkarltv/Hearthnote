@@ -20,6 +20,8 @@ docker compose up --build -d
 
 Open [Hearthnote on localhost](http://localhost:8000). The included `synthetic_data` contains five fictional clients, five career-coaching notes, and four worksheet templates. Open **Knowledge** and use the folder menu to switch between **Educational materials** and **Worksheet bases**.
 
+On first launch, create a username and password for Hearthnote’s single account. Use **Sign out** to end your session.
+
 ## Connect your coaching folder
 
 Point Hearthnote at a folder with the following layout. Folder names can vary because you assign each folder a content type in Settings.
@@ -54,19 +56,21 @@ Set the host path when starting Compose:
 HEARTHNOTE_VAULT_PATH="/absolute/path/to/Coaching" docker compose up --build -d
 ```
 
-You can put that assignment in a local `.env` file to reuse it. Compose mounts the folder at `/vault` and stores the configured sources in the `hearthnote-config` volume. If you switch from the demo to your vault and the previous selections still appear, select the folders in the new mount under **Vault settings**.
+You can put that assignment in a local `.env` file to reuse it. Compose mounts the folder at `/vault`, keeps vault settings in the `hearthnote-config` volume, and keeps the account and login sessions in `hearthnote-data`. Keep both volumes when updating the container. If you switch from the demo to your vault and the previous selections still appear, select the folders in the new mount under **Vault settings**.
 
 For a manually configured container or NAS, set the following mounts and environment variables:
 
 | Mount | Access |
 | --- | --- |
 | Host coaching folder → `/vault` | Read/write for client notes |
-| Persistent app-data folder → `/config` | Read/write |
+| Persistent vault-settings folder → `/config` | Read/write |
+| Persistent account-data folder → `/data` | Read/write |
 
 ```dotenv
 NOTES_ROOT=/vault
 VAULT_BOUNDARY=/vault
 CONFIG_PATH=/config/settings.json
+HEARTHNOTE_DATA_DIR=/data
 ```
 
 The supplied Compose file uses the `:Z` suffix for SELinux labeling.
@@ -80,7 +84,7 @@ The [Hearthnote app icon](app/static/app-icon.png) is a 256 × 256 PNG with the 
 
 ## Use the workspace
 
-- **Clients** shows searchable client folders, a list of numbered sessions, and a Markdown editor. It creates the next numbered session and accepts names such as `Session 1.md` and `session1.md`. Changes autosave, and Hearthnote flags a conflict if the file changes on disk while you edit it. Long client names wrap to two lines, then show an ellipsis. Hover over a name to see it in full.
+- **Clients** shows searchable client folders, numbered sessions, and an **Other notes** list for Markdown files such as intake forms. Open a note in **Read** mode or switch to **Edit** to change its Markdown. Changes autosave, and Hearthnote flags edits made outside the app. Hearthnote creates the next numbered session and accepts names such as `Session 1.md` and `session1.md`. Long client names wrap to two lines, then show an ellipsis; hover to see the full name.
 - **Knowledge** shows topics, materials, and a read-only Markdown reader. Each folder containing Markdown files, including nested folders, becomes a topic. Files at the source root appear under **General**. Search matches topic names and material titles. The reader renders headings, lists, checklists, tables, quotes, and code blocks.
 - **Keyboard shortcuts** use `Ctrl+K` or `⌘K` for search and `Ctrl+S` or `⌘S` to save a client note. On mobile, use the back buttons to move between columns.
 
@@ -96,7 +100,9 @@ Palette sources include [One Dark Pro](https://github.com/Binaryify/OneDark-Pro)
 
 ## Privacy and deployment
 
-Hearthnote has no built-in authentication. The Python command listens on loopback by default. The Compose mapping publishes port 8000 on all host interfaces by default. To use Compose locally with private notes, change the mapping to `127.0.0.1:8000:8000`. For remote access, put authentication and HTTPS in front of the app. Keep real vaults and their backups outside the project directory when sharing the source. The included demo notes are fictional.
+Complete first-run account setup on a trusted network: anyone who can reach the server before setup can claim the account. Direct Python runs listen on loopback by default and store account data in `.hearthnote/` next to the app; set `HEARTHNOTE_DATA_DIR` to use a different directory outside your vault.
+
+Compose publishes port 8000 on all host interfaces by default. For local-only access, change the mapping to `127.0.0.1:8000:8000`. For remote access, use an HTTPS reverse proxy that preserves the incoming `Host` header, set `HEARTHNOTE_SECURE_COOKIE=1`, and restrict direct access to the app port. Keep real vaults and backups outside the repository; the included demo notes are fictional.
 
 ## Tests
 

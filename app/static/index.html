@@ -2,14 +2,42 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#f4f0e8" />
     <title>Hearthnote — Coaching notes</title>
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <main class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <img class="brand-mark" src="/app-icon.png" width="38" height="38" alt="" />
+          <strong>Hearthnote</strong>
+        </div>
+        <h1 id="auth-title">Hearthnote</h1>
+        <p id="auth-description" role="status">Checking your account…</p>
+        <form id="auth-form" method="post" hidden>
+          <label>
+            Username
+            <input id="auth-username" name="username" required maxlength="160" autocomplete="username" autocapitalize="none" spellcheck="false" />
+          </label>
+          <label>
+            Password
+            <input id="auth-password" type="password" name="password" required autocomplete="current-password" />
+          </label>
+          <label id="auth-confirm-label" hidden>
+            Confirm password
+            <input id="auth-confirm" type="password" autocomplete="new-password" />
+          </label>
+          <p class="auth-error" id="auth-error" role="alert"></p>
+          <button class="primary-button" id="auth-submit" type="submit">Sign in</button>
+        </form>
+        <button class="secondary-button" id="auth-retry" type="button" hidden>Try again</button>
+      </div>
+    </main>
+
+    <div class="app-shell" hidden>
       <aside class="clients-panel" aria-label="Clients">
         <header class="brand">
           <img class="brand-mark" src="/app-icon.png" width="38" height="38" alt="" />
@@ -27,7 +55,7 @@
         <div class="panel-heading">
           <div>
             <p class="eyebrow" id="panel-eyebrow">Your practice</p>
-            <h1 id="panel-title">Clients</h1>
+            <h1 id="panel-title" tabindex="-1">Clients</h1>
           </div>
           <button class="icon-button dark" id="new-client" aria-label="Add client">+</button>
         </div>
@@ -47,7 +75,7 @@
 
         <footer class="vault-footer">
           <div class="vault-status">
-            <span class="pulse"></span>
+            <span class="pulse" aria-hidden="true"></span>
             <div>
               <strong>Vault connected</strong>
               <span id="vault-location">Plain Markdown · Syncthing ready</span>
@@ -67,23 +95,38 @@
             </div>
             <button class="settings-button" id="open-settings" aria-label="Settings" title="Settings"><span class="settings-glyph" aria-hidden="true"></span></button>
           </div>
+          <button id="sign-out" class="secondary-button sign-out" type="button">Sign out</button>
         </footer>
       </aside>
 
-      <aside class="sessions-panel" aria-label="Sessions">
+      <aside class="sessions-panel" aria-label="Client notes">
         <header class="sessions-header">
-          <button class="mobile-back" id="back-to-clients" aria-label="Back to clients">←</button>
+          <button class="mobile-back" id="back-to-clients" aria-label="Back to clients"><span aria-hidden="true">‹</span> <span id="back-to-clients-label">Clients</span></button>
           <div class="selected-person">
             <div class="avatar large" id="selected-avatar"></div>
             <div>
               <p class="eyebrow" id="selected-eyebrow">Working with</p>
-              <h2 id="selected-client">Choose a client</h2>
+              <h2 id="selected-client" tabindex="-1">Choose a client</h2>
             </div>
           </div>
           <button id="new-session" class="primary-button" disabled><span>＋</span> New session</button>
         </header>
-        <div class="session-count" id="session-count"></div>
-        <nav id="session-list" class="session-list"></nav>
+        <div id="note-sections" hidden>
+          <section class="note-section" aria-labelledby="sessions-toggle">
+            <h3><button type="button" class="section-toggle" id="sessions-toggle" aria-expanded="true" aria-controls="session-list">
+              <span id="session-count">Sessions</span><span class="section-chevron" aria-hidden="true"></span>
+            </button></h3>
+            <div id="session-list" class="session-list"></div>
+          </section>
+          <section class="note-section" aria-labelledby="other-notes-toggle">
+            <h3><button type="button" class="section-toggle" id="other-notes-toggle" aria-expanded="true" aria-controls="other-notes-list">
+              <span>Other notes</span><span class="section-chevron" aria-hidden="true"></span>
+            </button></h3>
+            <div id="other-notes-list" class="session-list"></div>
+          </section>
+        </div>
+        <div id="material-count" class="session-count hidden"></div>
+        <nav id="material-list" class="session-list hidden" aria-label="Materials"></nav>
       </aside>
 
       <main class="editor-panel">
@@ -94,12 +137,12 @@
           <p id="empty-description">Your sessions are stored as ordinary Markdown files, right where you left them.</p>
         </div>
 
-        <section id="editor-workspace" class="editor-workspace hidden" aria-label="Note editor">
+        <section id="editor-workspace" class="editor-workspace hidden" aria-labelledby="editor-title">
           <header class="editor-header">
-            <div>
-              <button class="mobile-back" id="back-to-sessions" aria-label="Back to sessions">←</button>
-              <p class="breadcrumb"><span id="crumb-client"></span><i>/</i><span id="crumb-session"></span></p>
-              <h2 id="editor-title"></h2>
+            <button class="mobile-back" id="back-to-notes" aria-label="Back to notes"><span aria-hidden="true">‹</span> Notes</button>
+            <div class="editor-heading">
+              <p class="breadcrumb"><span id="crumb-client"></span><i>/</i><span id="crumb-note"></span></p>
+              <h2 id="editor-title" tabindex="-1"></h2>
             </div>
             <div class="save-state" id="save-state" role="status">
               <span class="state-dot"></span>
@@ -107,17 +150,22 @@
             </div>
           </header>
 
-          <div class="editor-meta">
-            <span id="session-date"></span>
-            <span class="meta-divider"></span>
-            <span id="word-count">0 words</span>
-            <span class="meta-divider"></span>
-            <span>Markdown</span>
+          <div class="editor-toolbar">
+            <div class="editor-meta">
+              <span id="note-date"></span>
+              <span class="meta-divider"></span>
+              <span id="word-count">0 words</span>
+            </div>
+            <div class="note-modes" role="group" aria-label="Note mode">
+              <button id="read-note" type="button" aria-controls="note-preview" aria-pressed="true">Read</button>
+              <button id="edit-note" type="button" aria-controls="note-editor" aria-pressed="false">Edit</button>
+            </div>
           </div>
 
-          <textarea id="note-editor" aria-label="Session note" spellcheck="true"></textarea>
+          <article id="note-preview" class="material-content note-preview" aria-labelledby="editor-title" tabindex="0"></article>
+          <textarea id="note-editor" aria-label="Markdown source" spellcheck="true" hidden></textarea>
 
-          <footer class="editor-footer">
+          <footer class="editor-footer" id="editor-footer" hidden>
             <span>Autosaves as you write</span>
             <span class="shortcut-hint"><kbd data-shortcut-key="S">Ctrl + S</kbd> Save now</span>
           </footer>
@@ -125,9 +173,9 @@
 
         <section id="reader-workspace" class="reader-workspace hidden" aria-label="Knowledge reader">
           <header class="reader-header">
-            <button class="mobile-back" id="back-to-materials" aria-label="Back to materials">←</button>
+            <button class="mobile-back" id="back-to-materials" aria-label="Back to materials"><span aria-hidden="true">‹</span> Materials</button>
             <p class="breadcrumb" id="reader-crumb"></p>
-            <h2 id="reader-title"></h2>
+            <h2 id="reader-title" tabindex="-1"></h2>
           </header>
           <article id="material-content" class="material-content" aria-labelledby="reader-title"></article>
         </section>

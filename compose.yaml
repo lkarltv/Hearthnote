@@ -7,11 +7,14 @@ services:
       NOTES_ROOT: /vault
       VAULT_BOUNDARY: /vault
       CONFIG_PATH: /config/settings.json
+      HEARTHNOTE_SECURE_COOKIE: "${HEARTHNOTE_SECURE_COOKIE:-0}"
     volumes:
       - "${HEARTHNOTE_VAULT_PATH:-./synthetic_data}:/vault:Z"
       - "hearthnote-config:/config"
+      - "hearthnote-data:/data"
     restart: unless-stopped
 
 volumes:
   hearthnote-config:
+  hearthnote-data:
 

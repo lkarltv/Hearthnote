@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 
 
 SESSION_RE = re.compile(r"^session ?([1-9][0-9]*)\.md$", re.IGNORECASE)
@@ -37,6 +38,9 @@ class SessionSummary:
 
 
 class NotesStore:
+    # VaultManager opens a new store per request; their ETag checks must share a lock.
+    _write_lock = Lock()
+
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -58,7 +62,9 @@ class NotesStore:
         if not isinstance(number, int) or number < 1:
             raise StoreError("Session number must be a positive integer")
         directory = self._client_dir(client)
-        filename = self._session_files(directory).get(number, f"Session {number}.md")
+        filename = self._session_files(directory).get(number)
+        if filename is None:
+            raise NotFound("Session not found")
         path = directory / filename
         if path.is_symlink():
             raise NotFound("Session not found")
@@ -94,6 +100,56 @@ class NotesStore:
         ]
         return [asdict(session) for session in sessions]
 
+    @staticmethod
+    def _is_other_note(path: Path) -> bool:
+        return (
+            path.suffix.lower() == ".md"
+            and not SESSION_RE.fullmatch(path.name)
+            and not path.is_symlink()
+            and path.is_file()
+        )
+
+    def list_other_notes(self, client: str) -> list[dict]:
+        directory = self._client_dir(client)
+        if not directory.is_dir():
+            raise NotFound("Client not found")
+        notes = []
+        for path in sorted(directory.iterdir(), key=lambda item: (item.name.casefold(), item.name)):
+            if self._is_other_note(path):
+                try:
+                    timestamp = path.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                notes.append({"filename": path.name, "modified_at": self._iso(timestamp)})
+        return notes
+
+    def _other_note_path(self, client: str, filename: str) -> Path:
+        directory = self._client_dir(client)
+        if not filename or Path(filename).name != filename or "\x00" in filename:
+            raise NotFound("Note not found")
+        path = directory / filename
+        if not self._is_other_note(path):
+            raise NotFound("Note not found")
+        return path
+
+    def read_other_note(self, client: str, filename: str) -> dict:
+        return self._read_note(self._other_note_path(client, filename))
+
+    def _read_note(self, path: Path) -> dict:
+        try:
+            content = path.read_text(encoding="utf-8")
+            modified_at = self._iso(path.stat().st_mtime)
+        except FileNotFoundError:
+            raise NotFound("Note not found") from None
+        except UnicodeDecodeError:
+            raise StoreError("This note is not valid UTF-8") from None
+        return {
+            "filename": path.name,
+            "content": content,
+            "etag": self._etag(content),
+            "modified_at": modified_at,
+        }
+
     def list_clients(self) -> list[dict]:
         clients = []
         for directory in self.root.iterdir():
@@ -124,15 +180,7 @@ class NotesStore:
         path = self._session_path(client, number)
         if not path.is_file():
             raise NotFound("Session not found")
-        content = path.read_text(encoding="utf-8")
-        return {
-            "client": client,
-            "number": number,
-            "filename": path.name,
-            "content": content,
-            "etag": self._etag(content),
-            "modified_at": self._iso(path.stat().st_mtime),
-        }
+        return {"client": client, "number": number, **self._read_note(path)}
 
     def create_session(self, client: str) -> dict:
         directory = self._client_dir(client)
@@ -155,15 +203,31 @@ class NotesStore:
         return self.read_session(client, number)
 
     def update_session(self, client: str, number: int, content: str, expected_etag: str) -> dict:
+        self._validate_content(content)
+        path = self._session_path(client, number)
+        return self._update_note(path, content, expected_etag, client=client, number=number)
+
+    def update_other_note(self, client: str, filename: str, content: str, expected_etag: str) -> dict:
+        path = self._other_note_path(client, filename)
+        self._validate_content(content)
+        return self._update_note(path, content, expected_etag)
+
+    @staticmethod
+    def _validate_content(content: str) -> None:
         if not isinstance(content, str):
             raise StoreError("Content must be text")
         if len(content.encode("utf-8")) > 2_000_000:
             raise StoreError("Note is too large")
-        current = self.read_session(client, number)
-        if not expected_etag or expected_etag != current["etag"]:
-            raise Conflict("This note changed somewhere else", current)
-        self._atomic_write(self._session_path(client, number), content)
-        return self.read_session(client, number)
+
+    def _update_note(self, path: Path, content: str, expected_etag: str, **metadata) -> dict:
+        with self._write_lock:
+            if path.parent.is_symlink() or path.is_symlink() or not path.is_file():
+                raise NotFound("Note not found")
+            current = self._read_note(path)
+            if not expected_etag or expected_etag != current["etag"]:
+                raise Conflict("This note changed somewhere else", {**metadata, **current})
+            self._atomic_write(path, content)
+            return {**metadata, **self._read_note(path)}
 
     @staticmethod
     def _atomic_write(path: Path, content: str, exclusive: bool = False) -> None:

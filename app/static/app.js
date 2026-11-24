@@ -5,7 +5,8 @@ const state = {
   clients: [],
   client: null,
   sessions: [],
-  session: null,
+  otherNotes: [],
+  note: null,
   etag: null,
   saveTimer: null,
   dirty: false,
@@ -18,25 +19,109 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 const shell = $(".app-shell");
+const authScreen = $("#auth-screen");
+const authForm = $("#auth-form");
+const authUsername = $("#auth-username");
+const authPassword = $("#auth-password");
+const authConfirm = $("#auth-confirm");
+const authSubmit = $("#auth-submit");
+const authError = $("#auth-error");
 const clientList = $("#client-list");
 const sessionList = $("#session-list");
+const otherNotesList = $("#other-notes-list");
+const materialList = $("#material-list");
+const noteSections = $("#note-sections");
+const sectionToggles = document.querySelectorAll(".section-toggle");
 const editor = $("#note-editor");
+const preview = $("#note-preview");
+const readButton = $("#read-note");
+const editButton = $("#edit-note");
 const saveState = $("#save-state");
 const avatarColors = ["#d7c8b6", "#c8d7cf", "#d8c6c0", "#cbd2dc", "#ded4b8", "#d3c9dc"];
+const narrowViewport = window.matchMedia("(max-width: 720px)");
+const sectionPreferences = new Map();
+let authMode = "login";
+let workspaceLoaded = false;
+let authGeneration = 0;
 
 async function api(path, options = {}) {
+  const generation = authGeneration;
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
+  if (response.ok && !response.headers.get("Content-Type")?.includes("application/json")) {
+    throw new Error("Hearthnote returned an unexpected response. Restart the server and refresh the page.");
+  }
   const body = await response.json();
   if (!response.ok) {
     const error = new Error(body.error || "Something went wrong");
     error.status = response.status;
+    if (error.status === 401 && !path.startsWith("/api/auth/") && !shell.hidden && generation === authGeneration) {
+      const message = state.dirty
+        ? "Your session expired. Sign in again to save the unsaved changes in this tab."
+        : "Your session expired. Sign in again to continue.";
+      showAuth("login", message);
+    }
     error.body = body;
     throw error;
   }
   return body;
+}
+
+function showAuth(mode, message) {
+  const setup = mode === "setup";
+  authMode = mode;
+  clearTimeout(state.saveTimer);
+  shell.hidden = true;
+  document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
+  $("#toast").classList.remove("visible");
+  authScreen.hidden = false;
+  authForm.reset();
+  authForm.hidden = false;
+  $("#auth-retry").hidden = true;
+  $("#auth-title").textContent = setup ? "Create your account" : "Sign in";
+  $("#auth-description").textContent = message ?? (setup
+    ? "Choose a username and a password with at least 8 characters."
+    : "Sign in to access your coaching notes.");
+  $("#auth-confirm-label").hidden = !setup;
+  authConfirm.required = setup;
+  authPassword.autocomplete = setup ? "new-password" : "current-password";
+  authSubmit.textContent = setup ? "Create account" : "Sign in";
+  authError.textContent = "";
+  authUsername.focus();
+}
+
+async function openWorkspace() {
+  authGeneration++;
+  authScreen.hidden = true;
+  shell.hidden = false;
+  await navigate(async () => {
+    if (!workspaceLoaded) await loadWorkspace(await api("/api/settings"));
+  });
+  if (shell.hidden) return;
+  const view = shell.dataset.mobileView;
+  if (view === "editor" || (!narrowViewport.matches && state.note && !editor.hidden)) {
+    if (state.mode === "knowledge") $("#reader-title").focus();
+    else (editor.hidden ? $("#editor-title") : editor).focus();
+  } else {
+    (view === "sessions" && narrowViewport.matches ? $("#selected-client") : $("#panel-title")).focus();
+  }
+}
+
+async function checkAuthentication() {
+  authForm.hidden = true;
+  $("#auth-retry").hidden = true;
+  $("#auth-description").textContent = "Checking your account…";
+  try {
+    const session = await api("/api/auth/status");
+    if (session.authenticated) await openWorkspace();
+    else showAuth(session.setup_required ? "setup" : "login");
+  } catch (error) {
+    $("#auth-description").textContent = error.message;
+    $("#auth-retry").hidden = false;
+    $("#auth-retry").focus();
+  }
 }
 
 function encode(value) { return encodeURIComponent(value); }
@@ -51,11 +136,17 @@ function sessionDate(content, fallback) {
   const match = content.match(/^\*\*Date:\*\*\s*(.+)$/m);
   return match ? match[1] : friendlyDate(fallback);
 }
+function updateNoteDate(note) {
+  $("#note-date").textContent = state.note.number === undefined
+    ? friendlyDate(note.modified_at)
+    : sessionDate(note.content, note.modified_at);
+}
 function wordCount(content) {
   const words = content.trim().match(/[\p{L}\p{N}'’]+/gu) || [];
   return `${words.length} ${words.length === 1 ? "word" : "words"}`;
 }
 function toast(message) {
+  if (shell.hidden) return;
   const element = $("#toast");
   element.textContent = message;
   element.classList.add("visible");
@@ -65,6 +156,39 @@ function toast(message) {
 
 function sourceApi(path, params = {}) {
   return `${path}?${new URLSearchParams({ source: state.source, ...params })}`;
+}
+
+function noteApi(note) {
+  const root = `/api/clients/${encode(state.client)}`;
+  return sourceApi(note.number === undefined ? `${root}/other-notes/${encode(note.filename)}` : `${root}/sessions/${note.number}`);
+}
+
+function setMobileView(view, focusTarget) {
+  shell.dataset.mobileView = view;
+  if (narrowViewport.matches) {
+    window.scrollTo(0, 0);
+    focusTarget.focus();
+  }
+}
+
+function sectionKey(button) {
+  return `hearthnote.sections/${encode(state.source)}/${encode(state.client)}/${button.id}`;
+}
+
+function setSectionExpanded(button, expanded) {
+  button.setAttribute("aria-expanded", String(expanded));
+  document.getElementById(button.getAttribute("aria-controls")).hidden = !expanded;
+}
+
+function restoreSections() {
+  for (const button of sectionToggles) {
+    const key = sectionKey(button);
+    let preference = sectionPreferences.get(key);
+    if (preference === undefined) {
+      try { preference = window.localStorage.getItem(key); } catch {}
+    }
+    setSectionExpanded(button, preference !== "false");
+  }
 }
 
 function modeSources(mode = state.mode) {
@@ -97,18 +221,20 @@ async function loadWorkspace(settings) {
 }
 
 async function openSource(mode, path = modeSources(mode)[0]?.path) {
+  workspaceLoaded = false;
   const knowledge = mode === "knowledge";
   const sources = modeSources(mode);
   Object.assign(state, {
-    mode, source: path ?? null, client: null, session: null, etag: null,
-    clients: [], sessions: [], topics: [], topic: null, material: null,
+    mode, source: path ?? null, client: null, note: null, etag: null,
+    clients: [], sessions: [], otherNotes: [], topics: [], topic: null, material: null,
   });
   shell.dataset.mode = mode;
   setWorkspaceAppearance(mode);
   shell.dataset.mobileView = "clients";
   $(".clients-panel").setAttribute("aria-label", knowledge ? "Topics" : "Clients");
-  $(".sessions-panel").setAttribute("aria-label", knowledge ? "Materials" : "Sessions");
+  $(".sessions-panel").setAttribute("aria-label", knowledge ? "Materials" : "Client notes");
   $("#back-to-clients").setAttribute("aria-label", knowledge ? "Back to topics" : "Back to clients");
+  $("#back-to-clients-label").textContent = knowledge ? "Topics" : "Clients";
   $("#panel-eyebrow").textContent = knowledge ? "" : "Your practice";
   $("#panel-eyebrow").classList.toggle("hidden", knowledge);
   $("#panel-title").textContent = knowledge ? "Knowledge" : "Clients";
@@ -126,8 +252,13 @@ async function openSource(mode, path = modeSources(mode)[0]?.path) {
     $("#selected-avatar").append(icon);
   }
   $("#selected-avatar").style.removeProperty("--avatar");
-  $("#session-count").textContent = "";
+  noteSections.hidden = true;
+  $("#material-count").classList.toggle("hidden", !knowledge);
+  materialList.classList.toggle("hidden", !knowledge);
+  $("#material-count").textContent = "";
+  materialList.replaceChildren();
   sessionList.replaceChildren();
+  otherNotesList.replaceChildren();
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   });
@@ -149,6 +280,7 @@ async function openSource(mode, path = modeSources(mode)[0]?.path) {
     } else {
       await loadClients();
     }
+    workspaceLoaded = true;
   } finally {
     picker.disabled = sources.length < 2;
   }
@@ -198,9 +330,9 @@ function visibleMaterials(path) {
 }
 
 async function selectTopic(path, switchView = true) {
-  if (switchView) shell.dataset.mobileView = "sessions";
   const materials = visibleMaterials(path);
   if (state.topic === path) {
+    if (switchView) setMobileView("sessions", $("#selected-client"));
     if (materials.length && !materials.some((item) => item.path === state.material)) {
       await selectMaterial(materials[0].path, false);
     }
@@ -213,14 +345,15 @@ async function selectTopic(path, switchView = true) {
   renderTopics();
   renderMaterials();
   showEmptyEditor();
+  if (switchView) setMobileView("sessions", $("#selected-client"));
   if (materials.length) await selectMaterial(materials[0].path, false);
 }
 
 function renderMaterials() {
   if (state.topic === null) return;
   const materials = visibleMaterials(state.topic);
-  $("#session-count").textContent = countLabel(materials.length, "material");
-  sessionList.replaceChildren(...materials.map((material) => {
+  $("#material-count").textContent = countLabel(materials.length, "material");
+  materialList.replaceChildren(...materials.map((material) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "session-card material-card";
@@ -245,15 +378,15 @@ async function selectMaterial(path, switchView = true) {
     $("#empty-state").classList.add("hidden");
     $("#reader-workspace").classList.remove("hidden");
   }
-  if (switchView) shell.dataset.mobileView = "editor";
+  if (switchView) setMobileView("editor", $("#reader-title"));
 }
 
 async function navigate(action) {
-  if (state.navigating) return;
+  if (state.navigating || shell.hidden) return;
   state.navigating = true;
   editor.readOnly = true;
   try {
-    if (await saveNote()) await action();
+    if (await saveNote()) return await action();
   } catch (error) {
     toast(error.message);
   } finally {
@@ -280,18 +413,19 @@ function renderClients() {
     return;
   }
   clientList.innerHTML = clients.map((client) => `
-    <button class="client-card ${client.name === state.client ? "active" : ""}" data-client="${escapeHtml(client.name)}">
+    <button type="button" class="client-card${client.name === state.client ? " active" : ""}"${client.name === state.client ? ' aria-current="true"' : ""} data-client="${escapeHtml(client.name)}">
       <span class="avatar" style="--avatar:${colorFor(client.name)}">${escapeHtml(client.initials)}</span>
       <span class="client-copy"><strong title="${escapeHtml(client.name)}">${escapeHtml(client.name)}</strong><span>${client.session_count} ${client.session_count === 1 ? "session" : "sessions"}</span></span>
-      <span class="client-arrow">›</span>
+      <span class="client-arrow" aria-hidden="true">›</span>
     </button>`).join("");
   clientList.querySelectorAll("[data-client]").forEach((button) => button.addEventListener("click", () => navigate(() => selectClient(button.dataset.client))));
 }
 
 async function selectClient(name, switchView = true) {
-  const result = await api(sourceApi(`/api/clients/${encode(name)}/sessions`));
+  const root = `/api/clients/${encode(name)}`;
+  const [sessions, otherNotes] = await Promise.all([api(sourceApi(`${root}/sessions`)), api(sourceApi(`${root}/other-notes`))]);
   state.client = name;
-  state.session = null;
+  state.note = null;
   state.etag = null;
   renderClients();
   const client = state.clients.find((item) => item.name === name);
@@ -300,46 +434,86 @@ async function selectClient(name, switchView = true) {
   $("#selected-avatar").textContent = client?.initials || "";
   $("#selected-avatar").style.setProperty("--avatar", colorFor(name));
   $("#new-session").disabled = false;
-  state.sessions = result.sessions;
-  renderSessions();
+  state.sessions = sessions.sessions;
+  state.otherNotes = otherNotes.notes;
+  restoreSections();
+  noteSections.hidden = false;
+  renderNotes();
   showEmptyEditor();
-  if (switchView) shell.dataset.mobileView = "sessions";
-  if (state.sessions.length) await selectSession(state.sessions[0].number, false);
+  if (switchView) setMobileView("sessions", $("#selected-client"));
+  const firstNote = state.sessions[0] ?? state.otherNotes[0];
+  if (firstNote) await selectNote(firstNote, false);
 }
 
-function renderSessions() {
-  $("#session-count").textContent = `${state.sessions.length} ${state.sessions.length === 1 ? "session" : "sessions"}`;
-  if (!state.sessions.length) {
-    sessionList.innerHTML = '<div class="empty-sessions">No notes yet.<br>Create the first session when you’re ready.</div>';
-    return;
-  }
-  sessionList.innerHTML = state.sessions.map((session) => `
-    <button class="session-card ${session.number === state.session ? "active" : ""}" data-session="${session.number}">
-      <strong>Session ${session.number}</strong><span>${friendlyDate(session.modified_at)}</span>
-    </button>`).join("");
-  sessionList.querySelectorAll("[data-session]").forEach((button) => button.addEventListener("click", () => navigate(() => selectSession(Number(button.dataset.session)))));
+function noteTitle(note) {
+  return note.number === undefined ? note.filename.slice(0, -3) : `Session ${note.number}`;
 }
 
-async function selectSession(number, switchView = true) {
-  if (state.session === number && !$("#editor-workspace").classList.contains("hidden")) {
-    if (switchView) shell.dataset.mobileView = "editor";
-    return;
+function renderNoteList(list, notes, emptyMessage, timeline = false) {
+  list.innerHTML = notes.map((note) => `
+    <button type="button" class="session-card${timeline ? " timeline-card" : ""}" data-note-path="${escapeHtml(noteApi(note))}">
+      <strong>${escapeHtml(noteTitle(note))}</strong><span>${friendlyDate(note.modified_at)}</span>
+    </button>`).join("") || emptyMessage;
+  list.querySelectorAll("button").forEach((button, index) => {
+    button.addEventListener("click", () => navigate(() => selectNote(notes[index])));
+  });
+}
+
+function renderNotes() {
+  $("#session-count").textContent = countLabel(state.sessions.length, "session");
+  renderNoteList(sessionList, state.sessions, '<div class="empty-sessions">No sessions yet.<br>Create the first session when you’re ready.</div>', true);
+  renderNoteList(otherNotesList, state.otherNotes, '<p class="empty-other-notes">No other Markdown files.</p>');
+  updateNoteSelection();
+}
+
+function updateNoteSelection() {
+  const path = state.note ? noteApi(state.note) : null;
+  noteSections.querySelectorAll("[data-note-path]").forEach((button) => {
+    const active = button.dataset.notePath === path;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+async function selectNote(reference, switchView = true) {
+  const path = noteApi(reference);
+  if (!state.note || path !== noteApi(state.note)) {
+    const note = await api(path);
+    state.note = reference;
+    state.etag = note.etag;
+    state.dirty = false;
+    editor.value = note.content;
+    editor.setSelectionRange(0, 0);
+    $("#crumb-client").textContent = state.client;
+    $("#crumb-note").textContent = note.filename;
+    $("#editor-title").textContent = noteTitle(reference);
+    updateNoteDate(note);
+    $("#word-count").textContent = wordCount(note.content);
+    $("#empty-state").classList.add("hidden");
+    $("#editor-workspace").classList.remove("hidden");
+    setNoteMode("read");
+    setSaveStatus("saved");
+    updateNoteSelection();
   }
-  const note = await api(sourceApi(`/api/clients/${encode(state.client)}/sessions/${number}`));
-  state.session = number;
-  state.etag = note.etag;
-  state.dirty = false;
-  editor.value = note.content;
-  $("#crumb-client").textContent = state.client;
-  $("#crumb-session").textContent = note.filename;
-  $("#editor-title").textContent = `Session ${number}`;
-  $("#session-date").textContent = sessionDate(note.content, note.modified_at);
-  $("#word-count").textContent = wordCount(note.content);
-  $("#empty-state").classList.add("hidden");
-  $("#editor-workspace").classList.remove("hidden");
-  setSaveStatus("saved");
-  renderSessions();
-  if (switchView) shell.dataset.mobileView = "editor";
+  if (switchView) setMobileView("editor", $("#editor-title"));
+}
+
+function setNoteMode(mode) {
+  const editing = mode === "edit";
+  editor.hidden = !editing;
+  preview.hidden = editing;
+  $("#editor-footer").hidden = !editing;
+  readButton.setAttribute("aria-pressed", String(!editing));
+  editButton.setAttribute("aria-pressed", String(editing));
+  if (!editing) {
+    if (editor.value.trim()) {
+      renderMarkdown(preview, editor.value);
+    } else {
+      preview.innerHTML = '<p class="empty-preview">This note is empty.</p>';
+    }
+    preview.scrollTop = 0;
+  }
 }
 
 function showEmptyEditor() {
@@ -368,7 +542,8 @@ function scheduleSave() {
 
 async function saveNote() {
   if (state.saving && !await state.saving) return false;
-  if (!state.dirty || !state.client || !state.session) return true;
+  if (!state.dirty || !state.note) return true;
+  if (shell.hidden) return false;
   if (state.saving) return saveNote();
   state.saving = writeNote();
   return state.saving;
@@ -379,7 +554,7 @@ async function writeNote() {
   const contentAtStart = editor.value;
   setSaveStatus("saving");
   try {
-    const note = await api(sourceApi(`/api/clients/${encode(state.client)}/sessions/${state.session}`), {
+    const note = await api(noteApi(state.note), {
       method: "PUT",
       body: JSON.stringify({ content: contentAtStart, etag: state.etag }),
     });
@@ -391,7 +566,7 @@ async function writeNote() {
     } else {
       setSaveStatus("saved");
     }
-    $("#session-date").textContent = sessionDate(note.content, note.modified_at);
+    updateNoteDate(note);
     return true;
   } catch (error) {
     if (error.status === 409) {
@@ -409,16 +584,14 @@ async function writeNote() {
 
 async function createSession() {
   if (!state.client) return;
-  try {
-    const note = await api(sourceApi(`/api/clients/${encode(state.client)}/sessions`), { method: "POST", body: "{}" });
-    const result = await api(sourceApi(`/api/clients/${encode(state.client)}/sessions`));
-    state.sessions = result.sessions;
-    state.session = null;
-    renderSessions();
-    await selectSession(note.number);
-    editor.focus();
-    toast(`Session ${note.number} created`);
-  } catch (error) { toast(error.message); }
+  const path = sourceApi(`/api/clients/${encode(state.client)}/sessions`);
+  const note = await api(path, { method: "POST", body: "{}" });
+  ({ sessions: state.sessions } = await api(path));
+  renderNotes();
+  await selectNote(note);
+  setNoteMode("edit");
+  toast(`Session ${note.number} created`);
+  return true;
 }
 
 const settingsTabs = [...document.querySelectorAll(".settings-tabs [role=tab]")];
@@ -520,8 +693,10 @@ async function browseFolders(parent = ".") {
 }
 
 async function openSettings() {
+  const generation = authGeneration;
   try {
     const settings = await api("/api/settings");
+    if (shell.hidden || generation !== authGeneration) return;
     notesRoot.value = settings.notes_root;
     Object.assign(settingsDraft, {
       root: settings.notes_root, input: "", parent: ".", folders: null, sources: settings.sources,
@@ -584,6 +759,70 @@ function escapeHtml(value) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
+$("#auth-retry").addEventListener("click", checkAuthentication);
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (authSubmit.disabled) return;
+  if (authMode === "setup" && authPassword.value !== authConfirm.value) {
+    authError.textContent = "The passwords do not match.";
+    authConfirm.focus();
+    return;
+  }
+  authSubmit.disabled = true;
+  authError.textContent = "";
+  try {
+    await api(`/api/auth/${authMode}`, {
+      method: "POST",
+      body: JSON.stringify({ username: authUsername.value, password: authPassword.value }),
+    });
+    authForm.reset();
+    await openWorkspace();
+  } catch (error) {
+    if (error.status === 409 && authMode === "setup") {
+      await checkAuthentication();
+    } else {
+      authError.textContent = error.message;
+      if (error.status === 401) {
+        authPassword.value = "";
+        authPassword.focus();
+      }
+    }
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+$("#sign-out").addEventListener("click", (event) => {
+  const button = event.currentTarget;
+  navigate(async () => {
+    button.disabled = true;
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+      window.location.reload();
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+for (const button of sectionToggles) {
+  button.addEventListener("click", () => {
+    const expanded = button.getAttribute("aria-expanded") === "false";
+    setSectionExpanded(button, expanded);
+    const key = sectionKey(button);
+    sectionPreferences.set(key, String(expanded));
+    try { window.localStorage.setItem(key, String(expanded)); } catch {}
+  });
+}
+readButton.addEventListener("click", () => {
+  if (state.navigating || editor.hidden) return;
+  setNoteMode("read");
+  saveNote();
+});
+editButton.addEventListener("click", () => {
+  if (state.navigating) return;
+  setNoteMode("edit");
+  editor.focus();
+});
+
 document.querySelectorAll("[data-mode]").forEach((button) => {
   button.addEventListener("click", () => {
     if (state.mode !== button.dataset.mode) navigate(() => openSource(button.dataset.mode));
@@ -603,11 +842,20 @@ $("#client-search").addEventListener("input", () => {
     renderClients();
   }
 });
-$("#back-to-materials").addEventListener("click", () => { shell.dataset.mobileView = "sessions"; });
-$("#new-session").addEventListener("click", () => navigate(createSession));
+$("#back-to-materials").addEventListener("click", () => {
+  setMobileView("sessions", materialList.querySelector(".active") ?? $("#selected-client"));
+});
+$("#new-session").addEventListener("click", async () => {
+  if (await navigate(createSession)) editor.focus();
+});
 editor.addEventListener("input", scheduleSave);
-$("#back-to-clients").addEventListener("click", () => shell.dataset.mobileView = "clients");
-$("#back-to-sessions").addEventListener("click", () => navigate(() => { shell.dataset.mobileView = "sessions"; }));
+$("#back-to-clients").addEventListener("click", () => {
+  setMobileView("clients", clientList.querySelector(".active") ?? $("#panel-title"));
+});
+$("#back-to-notes").addEventListener("click", () => navigate(() => {
+  const active = noteSections.querySelector(".session-list:not([hidden]) .active");
+  setMobileView("sessions", active ?? $("#selected-client"));
+}));
 $("#new-client").addEventListener("click", () => { $("#client-dialog").showModal(); setTimeout(() => $("#client-name").focus(), 50); });
 $("#dialog-close").addEventListener("click", () => $("#client-dialog").close());
 $("#dialog-cancel").addEventListener("click", () => $("#client-dialog").close());
@@ -643,12 +891,12 @@ $("#client-form").addEventListener("submit", (event) => {
     $("#client-dialog").close();
     $("#client-name").value = "";
     await loadClients(name);
-    shell.dataset.mobileView = "sessions";
+    setMobileView("sessions", $("#selected-client"));
     toast(`${name} added`);
   });
 });
 document.addEventListener("keydown", async (event) => {
-  if (document.querySelector("dialog[open]")) return;
+  if (shell.hidden || document.querySelector("dialog[open]")) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#client-search").focus(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); await saveNote(); }
 });
@@ -656,5 +904,5 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
 
 initAppearance();
 shell.dataset.mobileView = "clients";
-navigate(async () => loadWorkspace(await api("/api/settings")));
+checkAuthentication();
 
